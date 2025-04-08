@@ -1,0 +1,81 @@
+body {
+    font-family: Arial, sans-serif;
+    width: 270px;
+    padding: 15px;
+    background-color: #f4f4f4;
+}
+
+.container {
+    text-align: center;
+    background: white;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+h3, h4 {
+    margin-bottom: 10px;
+    color: #333;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 14px;
+    color: #555;
+}
+
+select {
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+    background-color: #fff;
+    font-size: 14px;
+}
+
+button {
+    width: 100%;
+    padding: 10px;
+    margin: 5px 0;
+    border: none;
+    border-radius: 5px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+#openPortal {
+    background-color: #007bff;
+    color: white;
+}
+
+#openPortal:hover {
+    background-color: #0056b3;
+}
+
+#saveProject {
+    background-color: #28a745;
+    color: white;
+}
+
+#saveProject:hover {
+    background-color: #218838;
+}
+
+#goToWorklog {
+    background-color: #ffc107;
+    color: black;
+}
+
+#goToWorklog:hover {
+    background-color: #e0a800;
+}
+
+hr {
+    margin: 15px 0;
+    border: none;
+    height: 1px;
+    background: #ddd;
+}

@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Inexture IntelliMate",
+  "version": "1.0",
+  "description": "Your intelligent workmate for automating time entries in the Inexture portal.",
+  "permissions": ["scripting", "activeTab", "storage"],
+  "host_permissions": ["https://portal.inexture.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://portal.inexture.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "action": {
+    "default_title": "Inexture IntelliMate",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
