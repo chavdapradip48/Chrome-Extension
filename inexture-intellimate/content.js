@@ -3,6 +3,7 @@ var targetTimeSeconds = timeToSeconds('08:20:00');
 var dayMustTimeSeconds = timeToSeconds('07:00:00');
 var dayExtraUseTimeSeconds = timeToSeconds('01:20:00');
 var minLeaveTime = "17:30:00";
+var dayStartTime = "10:00:00";
 var minLeaveTimeSeconds = timeToSeconds(minLeaveTime);
 
 function checkAndAddButton() {
@@ -88,7 +89,13 @@ function secondsToTime(seconds) {
 function calculateTimeDifference() {
   var table = document.getElementsByClassName("mrt-table")[0];
   var todayEntry = table.rows[1]
+  var earlyTimeString = todayEntry.getElementsByTagName("td")[1].querySelectorAll("div.globalTable-Flex-root > div")[0].querySelector("div span.globalTable-Badge-label").innerText;
   let liveDurationSeconds = timeToSeconds(todayEntry.cells[todayEntry.cells.length - 2].innerText);
+
+  if(earlyTimeString.startsWith("09")) {
+    liveDurationSeconds = liveDurationSeconds - (timeToSeconds(dayStartTime) - timeToSeconds(earlyTimeString));
+  }
+
   var weekPreviosERTime = getExtraOrRemainOfWeek();
   var weekPreviosERTimeSecond = timeToSeconds(weekPreviosERTime);
   if(weekPreviosERTimeSecond > dayExtraUseTimeSeconds) weekPreviosERTimeSecond = dayExtraUseTimeSeconds;
