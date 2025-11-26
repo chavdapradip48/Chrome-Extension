@@ -3,8 +3,8 @@
   "name": "Inexture IntelliMate",
   "version": "1.0",
   "description": "Your intelligent workmate for automating time entries in the Inexture portal.",
-  "permissions": ["scripting", "activeTab", "storage"],
-  "host_permissions": ["https://portal.inexture.com/*"],
+  "permissions": ["scripting", "activeTab", "storage", "webRequest"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },

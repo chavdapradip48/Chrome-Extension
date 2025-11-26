@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="VIEW_DATAport" content="width=device-width, initial-scale=1.0">
     <title>Portal Helper</title>
     <script src="popup.js" defer></script>
     <link rel="stylesheet" href="popup.css">
@@ -17,13 +17,49 @@
 
         <h4>Project Selection</h4>
         <label for="projectDropdown">Choose a project:</label>
-        <select id="projectDropdown">
-            <option value="Java Delivery">Java Delivery</option>
-            <option value="Cemex">Cemex</option>
-        </select>
+        <select id="projectDropdown"></select>
+        <div id="authPrompt" style="display:none; margin-top:8px; padding:8px; border:1px dashed #ddd; background:#fafafa;">
+            <div style="margin-bottom:6px;">You are not signed in — please login to the portal to load projects.</div>
+            <div>
+                <a id="loginLink" href="https://portal.inexture.com/auth" target="_blank"><button id="goToLogin">Go to Login</button></a>
+            </div>
+        </div>
         
-        <button id="saveProject">Save Selection</button>
-        <button id="goToWorklog">Go to Worklog</button>
+        <div class="row">
+            <button id="saveProject">Save Selection</button>
+            <button id="goToWorklog">Go to Worklog</button>
+        </div>
+
+        <hr>
+
+        <h4>Live Time Calculation</h4>
+        <div class="controls">
+            <label>Target:</label>
+            <select id="targetSelect">
+                <option value="08:20:00">Full day — 08:20:00</option>
+                <option value="07:00:00">Short day — 07:00:00</option>
+                <option value="custom">Custom</option>
+            </select>
+            <input id="customTarget" type="time" step="1" style="display:none;" />
+        </div>
+
+        <div class="controls">
+            <label><input type="checkbox" id="useWeeklyExtra" checked /> Use weekly extra if available</label>
+        </div>
+
+        <div class="results">
+            <div id="resultsLoader" style="display:none;" class="loader"><span class="spinner"></span>Calculating...</div>
+            <div class="result-row"><strong>Live duration:</strong> <span id="liveDuration">—</span></div>
+            <div class="result-row"><strong>Weekly extra/deficit:</strong> <span id="weeklyExtra">—</span></div>
+            <div class="result-row"><strong>Need to stay:</strong> <span id="needToStay">—</span></div>
+            <div class="result-row"><strong>Leave at:</strong> <span id="leaveAt">—</span></div>
+            <div class="result-row"><strong>Leave using weekly extra:</strong> <span id="leaveWithExtra">—</span></div>
+        </div>
+
+        <div class="row">
+            <button id="refreshBtn">Refresh</button>
+            <button id="calcBtn">Calculate</button>
+        </div>
     </div>
 </body>
 </html>

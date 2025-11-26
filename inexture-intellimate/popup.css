@@ -1,16 +1,16 @@
 body {
     font-family: Arial, sans-serif;
-    width: 270px;
-    padding: 15px;
+    width: 360px;
+    padding: 10px;
     background-color: #f4f4f4;
 }
 
 .container {
-    text-align: center;
+    text-align: left;
     background: white;
-    padding: 15px;
-    border-radius: 10px;
-    box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 12px;
+    border-radius: 8px;
+    box-shadow: 0px 3px 6px rgba(0, 0, 0, 0.08);
 }
 
 h3, h4 {
@@ -26,23 +26,26 @@ label {
 }
 
 select {
-    width: 100%;
-    padding: 8px;
-    margin-bottom: 10px;
+    padding: 6px;
     border-radius: 5px;
     border: 1px solid #ccc;
     background-color: #fff;
-    font-size: 14px;
+    font-size: 13px;
+    /* make the select occupy available width inside popup and clip long text */
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 button {
-    width: 100%;
-    padding: 10px;
-    margin: 5px 0;
-    border: none;
+    padding: 8px 10px;
+    margin: 4px 0;
+    border: 1px solid #ccc;
     border-radius: 5px;
-    font-size: 14px;
-    font-weight: bold;
+    font-size: 13px;
     cursor: pointer;
 }
 
@@ -79,3 +82,19 @@ hr {
     height: 1px;
     background: #ddd;
 }
+
+.row { display:flex; gap:8px; }
+
+/* ensure flex children (buttons) don't force the row wider than the container */
+.row > button { flex: 1 1 auto; min-width: 0; }
+.controls { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+.results { background:#f7f7f7; padding:8px; border-radius:6px; }
+.result-row { margin:6px 0; }
+.result-row strong { display:inline-block; width:170px; }
+#customTarget { width:120px; }
+#refreshBtn, #calcBtn { flex:1; }
+
+/* loader styles */
+.loader { display:flex; align-items:center; gap:8px; color:#333; padding:6px 4px; }
+.spinner { width:16px; height:16px; border:3px solid #ddd; border-top-color:#007bff; border-radius:50%; animation:spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
