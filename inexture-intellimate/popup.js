@@ -8,10 +8,25 @@ document.addEventListener("DOMContentLoaded", function () {
     const worklogButton = document.getElementById("goToWorklog");
     const authPrompt = document.getElementById('authPrompt');
     const goToLoginBtn = document.getElementById('goToLogin');
+
+    // If critical elements are missing, bail out to avoid runtime errors.
+    if (!projectDropdown || !saveButton || !worklogButton) {
+        console.warn('Popup required elements missing; aborting init');
+        return;
+    }
+
     console.log("Popup loaded");
     // Populate dropdown while loading
     projectDropdown.innerHTML = "<option>Loading projects...</option>";
+    // temporarily disable actions until projects load
+    saveButton.disabled = true;
+    worklogButton.disabled = true;
+    projectDropdown.disabled = true;
+
     let fetchedTasks = [];
+    // in seconds: positive => surplus, negative => deficit
+    let lastWeeklySignedSeconds = null;
+    let tasksLoaded = false;
 
     // Save when the Save button is clicked
     saveButton.addEventListener("click", function () {
@@ -56,6 +71,8 @@ document.addEventListener("DOMContentLoaded", function () {
     const needToStayEl = document.getElementById('needToStay');
     const leaveAtEl = document.getElementById('leaveAt');
     const leaveWithExtraEl = document.getElementById('leaveWithExtra');
+    const calcAtEl = document.getElementById('calcAt');
+    const calcAtTimeEl = document.getElementById('calcAtTime');
     const targetSelect = document.getElementById('targetSelect');
     const customTarget = document.getElementById('customTarget');
     const useWeeklyExtra = document.getElementById('useWeeklyExtra');
@@ -105,6 +122,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
             if (!fetchedTasks.length) {
                 projectDropdown.innerHTML = '<option>No projects found</option>';
+                projectDropdown.disabled = false;
+                worklogButton.disabled = false;
                 return;
             }
 
@@ -134,6 +153,12 @@ document.addEventListener("DOMContentLoaded", function () {
                     }
                 }
             });
+
+            // enable controls now that we have data
+            tasksLoaded = true;
+            saveButton.disabled = false;
+            worklogButton.disabled = false;
+            projectDropdown.disabled = false;
         } catch (e) {
                 const msg = (e && e.message) ? e.message : JSON.stringify(e);
                 try { console.warn('fetchAndPopulateProjects error', msg); } catch (_) { console.warn('fetchAndPopulateProjects error', e); }
@@ -145,6 +170,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 projectDropdown.innerHTML = '<option>Choose a project</option>';
                 showAuthPrompt(false);
             }
+            // allow navigation even if selection fails; keep save disabled to avoid storing empty values
+            worklogButton.disabled = false;
+            projectDropdown.disabled = false;
         }
     }
 
@@ -243,17 +271,24 @@ document.addEventListener("DOMContentLoaded", function () {
 
                     const targetWeekSeconds = timeToSeconds('08:20:00') * workDays;
                     console.log({ monday, startOfToday, workDays, weeklySeconds, targetWeekSeconds });
-                    if (weeklySeconds > targetWeekSeconds) weeklyExtra = secondsToTime(weeklySeconds - targetWeekSeconds);
-                    else weeklyExtra = '-' + secondsToTime(targetWeekSeconds - weeklySeconds);
+                    if (weeklySeconds > targetWeekSeconds) {
+                        weeklyExtra = secondsToTime(weeklySeconds - targetWeekSeconds);
+                        lastWeeklySignedSeconds = (weeklySeconds - targetWeekSeconds); // positive
+                    } else {
+                        weeklyExtra = '-' + secondsToTime(targetWeekSeconds - weeklySeconds);
+                        lastWeeklySignedSeconds = (weeklySeconds - targetWeekSeconds); // negative
+                    }
                 }
             } catch (e) {
                 console.warn('error fetching weekly list:', (e && e.message) ? e.message : e);
                 if (e && e.error === 'no_token') weeklyExtra = '—';
                 else if (e && e.status === 401) weeklyExtra = '—';
                 else weeklyExtra = '—';
+                lastWeeklySignedSeconds = null;
             }
 
             weeklyExtraEl.innerText = weeklyExtra;
+            // keep the element text but remember we cached numeric signed value
             // success — ensure auth prompt is hidden
             showAuthPrompt(false);
         } catch (e) {
@@ -263,9 +298,12 @@ document.addEventListener("DOMContentLoaded", function () {
             weeklyExtraEl.innerText = '—';
         }
 
-        // compute leave times automatically after refresh
+        // compute leave times automatically after refresh — pass a fixed base time so the
+        // calculated 'leave' timestamps remain stable until the next refresh (they won't
+        // continuously slide forward as `Now` moves).
         try {
-            computeLeaveTimes();
+            // use the 'today' anchor from above as a stable base timestamp
+            computeLeaveTimes(today);
         } catch (e) {
             console.warn('computeLeaveTimes error after refresh', e);
         } finally {
@@ -274,7 +312,20 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    function computeLeaveTimes() {
+    // If a baseDate is provided, use that as the anchor for timestamp calculations.
+    // Otherwise fallback to the current time when computeLeaveTimes is called.
+    function computeLeaveTimes(baseDate) {
+        // update 'calculated at' label when a baseDate is provided
+        try {
+            if (baseDate && baseDate instanceof Date) {
+                if (calcAtEl && calcAtTimeEl) {
+                    calcAtTimeEl.innerText = formatClock(baseDate);
+                    calcAtEl.style.display = 'block';
+                }
+            } else {
+                if (calcAtEl) calcAtEl.style.display = 'none';
+            }
+        } catch (e) { /* ignore formatting errors */ }
         const liveText = liveDurationEl.innerText;
         // If liveText is not a valid HH:MM:SS string, clear outputs and return
         if (!liveText || liveText === '...' || liveText === 'err' || liveText === '—') {
@@ -317,28 +368,97 @@ document.addEventListener("DOMContentLoaded", function () {
             leaveAtEl.innerText = 'Now';
         } else {
             needToStayEl.innerText = secondsToTime(needSeconds);
-            leaveAtEl.innerText = addSecondsToCurrentTime(needSeconds);
+            leaveAtEl.innerText = addSecondsToCurrentTime(needSeconds, baseDate);
         }
 
         // using weekly extra
+        // prefer using cached numeric weekly signed seconds when available (avoid races)
         const weeklyText = weeklyExtraEl.innerText;
+        const cachedSigned = (typeof lastWeeklySignedSeconds === 'number') ? lastWeeklySignedSeconds : null;
         let leaveWithExtra = '—';
         if (useWeeklyExtra.checked && weeklyText && weeklyText !== '...' && weeklyText !== 'err' && weeklyText !== '—') {
             // weeklyText may be '-HH:MM:SS' or 'HH:MM:SS'
-            const extraIsNegative = typeof weeklyText === 'string' && weeklyText.trim().startsWith('-');
-            const weeklyClean = (typeof weeklyText === 'string') ? weeklyText.replace('-', '') : '';
+            let extraIsNegative;
+            let weeklyClean;
+            let weeklySeconds;
+
+            if (cachedSigned !== null) {
+                extraIsNegative = cachedSigned < 0;
+                weeklySeconds = Math.abs(cachedSigned);
+                weeklyClean = secondsToTime(weeklySeconds);
+            } else {
+                extraIsNegative = typeof weeklyText === 'string' && weeklyText.trim().startsWith('-');
+                weeklyClean = (typeof weeklyText === 'string') ? weeklyText.replace('-', '') : '';
+                weeklySeconds = timeToSeconds(weeklyClean);
+            }
             if (/^[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?$/.test(weeklyClean)) {
-                const weeklySeconds = timeToSeconds(weeklyClean);
+                // weeklySeconds is already computed/parsed above
                 let capped = weeklySeconds;
                 if (capped > timeToSeconds('01:20:00')) capped = timeToSeconds('01:20:00');
 
-                const required = Math.max(0, targetSeconds - liveSeconds);
-                const afterUsing = extraIsNegative ? required + capped : Math.max(0, required - capped);
-                // If target already reached, user can leave now even after considering weekly extra
-                if (liveSeconds >= targetSeconds) {
-                    leaveWithExtra = 'Now';
+                // deltaToTarget: seconds remaining until target (positive when need to reach,
+                // negative when target already reached = overtime seconds)
+                const deltaToTarget = targetSeconds - liveSeconds;
+                const required = Math.max(0, deltaToTarget);
+
+                // today's overtime (seconds) — positive if we are past target
+                const todayOvertime = Math.max(0, -deltaToTarget);
+
+                // Determine anchorTime: the moment when today's target is (or will be) reached.
+                // - if target is already reached, anchor = baseDate - overtime (when target completed)
+                // - if not, anchor = baseDate + required (when target will be reached)
+                let anchorMillis;
+                try {
+                    const baseMs = baseDate && baseDate instanceof Date ? baseDate.getTime() : Date.now();
+                    if (liveSeconds >= targetSeconds) {
+                        // completed earlier — anchor at the time target was reached
+                        const overtimeSeconds = liveSeconds - targetSeconds;
+                        anchorMillis = baseMs - (overtimeSeconds * 1000);
+                    } else {
+                        // target is in the future — anchor when it will be reached
+                        anchorMillis = baseMs + (required * 1000);
+                    }
+                } catch (e) {
+                    anchorMillis = Date.now();
+                }
+
+                if (extraIsNegative) {
+                    // previous-days deficit
+                    const prevDeficit = weeklySeconds;
+                    // today's overtime reduces the previous deficit
+                    const remainingDeficitAfterToday = Math.max(0, prevDeficit - todayOvertime);
+
+                    const baseMs = baseDate && baseDate instanceof Date ? baseDate.getTime() : Date.now();
+
+                    // If target already reached, remaining deficit must be earned from now onward
+                    // (user already has todayOvertime; they need additional remainingDeficitAfterToday seconds)
+                    let finalLeaveMillis;
+                    if (liveSeconds >= targetSeconds) {
+                        finalLeaveMillis = baseMs + (remainingDeficitAfterToday * 1000);
+                    } else {
+                        // target not yet reached: they must first reach target (required seconds),
+                        // then cover the whole prevDeficit (todayOvertime is zero in this branch)
+                        finalLeaveMillis = anchorMillis + (prevDeficit * 1000);
+                    }
+
+                    console.debug('leaveWithExtra (neg):', { anchor: new Date(anchorMillis).toLocaleTimeString(), prevDeficit, todayOvertime, remainingDeficitAfterToday, finalLeave: new Date(finalLeaveMillis).toLocaleTimeString() });
+                    // If the computed final time is in the past compared to base, show 'Now'
+                    leaveWithExtra = (finalLeaveMillis <= baseMs) ? 'Now' : formatClock(new Date(finalLeaveMillis));
                 } else {
-                    leaveWithExtra = addSecondsToCurrentTime(afterUsing);
+                    // previous-days surplus reduces the required time to reach target
+                    const usableSurplus = Math.min(capped, weeklySeconds);
+                    // newRequired is how many seconds are actually needed from now
+                    // after using previous-days surplus. Use base time for final calculation.
+                    const baseMs = baseDate && baseDate instanceof Date ? baseDate.getTime() : Date.now();
+                    const newRequired = Math.max(0, required - usableSurplus);
+
+                    // final leave is base + newRequired (shorter than anchor if surplus applies)
+                    const finalLeaveMillis = baseMs + (newRequired * 1000);
+                    // `newRequired` is the adjusted required seconds after taking usableSurplus into account.
+                    console.debug('leaveWithExtra (pos):', { anchor: formatClock(new Date(anchorMillis)), usableSurplus, required, newRequired, finalLeave: formatClock(new Date(finalLeaveMillis)) });
+
+                    // if final leave is in the past or now, show Now
+                    leaveWithExtra = (finalLeaveMillis <= baseMs) ? 'Now' : formatClock(new Date(finalLeaveMillis));
                 }
             } else {
                 leaveWithExtra = '—';
@@ -349,18 +469,32 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     refreshBtn.addEventListener('click', refreshDataAndDisplay);
-    calcBtn.addEventListener('click', computeLeaveTimes);
+    calcBtn.addEventListener('click', () => computeLeaveTimes(new Date()));
 
     // auto refresh on open
     refreshDataAndDisplay();
 
     // helper to add seconds to current time for popup display
-    function addSecondsToCurrentTime(secondsToAdd) {
-        let currentTime = new Date();
+    function addSecondsToCurrentTime(secondsToAdd, baseDate) {
+        // If caller provides a baseDate (Date instance), compute from that, otherwise use now.
+        let currentTime = baseDate && (baseDate instanceof Date) ? new Date(baseDate.getTime()) : new Date();
         currentTime.setSeconds(currentTime.getSeconds() + secondsToAdd);
-        let hours = String(currentTime.getHours()).padStart(2, '0');
-        let minutes = String(currentTime.getMinutes()).padStart(2, '0');
-        let seconds = String(currentTime.getSeconds()).padStart(2, '0');
-        return `${hours}:${minutes}:${seconds}`;
+        return formatClock(currentTime);
+    }
+
+    // 12-hour clock helper with seconds
+    function formatClock(dateObj) {
+        try {
+            return dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+        } catch (e) {
+            // fallback to manual
+            const d = new Date(dateObj.getTime ? dateObj.getTime() : Date.now());
+            let h = d.getHours();
+            const m = String(d.getMinutes()).padStart(2, '0');
+            const s = String(d.getSeconds()).padStart(2, '0');
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            h = h % 12; h = h ? h : 12;
+            return `${h}:${m}:${s} ${ampm}`;
+        }
     }
 });

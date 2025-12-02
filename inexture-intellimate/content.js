@@ -7,27 +7,29 @@ var dayStartTime = "10:00:00";
 var minLeaveTimeSeconds = timeToSeconds(minLeaveTime);
 
 function checkAndAddButton() {
-    if(window.location.pathname !== "/time-entry") {
+    if (window.location.pathname !== "/time-entry") {
         var stickButton = document.getElementById("sticky-button");
         if (stickButton) {
-            stickButton.remove(); 
+            stickButton.remove();
             isButtonAdded = false;
         }
         return;
     }
-    if(isButtonAdded) return;
-    if(window.location.pathname === "/time-entry") {
-        isButtonAdded = true;
-        addButtonInBody('Calculate Time', 'sticky-button', '#007bff', 'white');
-                document.getElementById('sticky-button').addEventListener('click', async function () {
-                    try {
-                        const msg = await calculateTimeDifferenceUsingApi();
-                        alert(msg);
-                    } catch (e) {
-                        console.error('Error calculating time:', e);
-                        alert('Error calculating time: ' + e);
-                    }
-                });
+    if (isButtonAdded) return;
+
+    isButtonAdded = true;
+    addButtonInBody('Calculate Time', 'sticky-button', '#007bff', 'white');
+    var calculateBtn = document.getElementById('sticky-button');
+    if (calculateBtn) {
+        calculateBtn.addEventListener('click', async function () {
+            try {
+                const msg = await calculateTimeDifferenceUsingApi();
+                alert(msg);
+            } catch (e) {
+                console.error('Error calculating time:', e);
+                alert('Error calculating time: ' + e);
+            }
+        });
     }
 }
 function addButtonInBody(name, id, backgroudColor, color) {
@@ -81,37 +83,43 @@ if(window.location.host === "portal.inexture.com") {
     var timeEntryLoop = setInterval(checkAndAddButton, 2000);
 }
 
-// Login prompt: if the user is not logged in (on auth page or login form present), show a small banner
-function showLoginPrompt() {
-    // Intentionally disabled — popup injected banner has been removed by user request.
-    // This function is kept as a no-op to avoid breakage in other logic that may call it.
-    return;
-}
-
-function hideLoginPrompt() {
-    // No-op — we never inject a login prompt, but keep this function for compatibility.
-    return;
-}
-
-function checkLoginStatus() {
-    try {
-        if (window.location.host !== 'portal.inexture.com') return hideLoginPrompt();
-
-        const path = window.location.pathname || '';
-        const onAuthPath = path.startsWith('/auth') || path.startsWith('/login');
-        const hasPasswordInput = !!document.querySelector('input[type="password"], input[name*="password"]');
-
-        if (onAuthPath || hasPasswordInput) {
-            showLoginPrompt();
-        } else {
-            hideLoginPrompt();
+// helper to ask background to fetch an URL with stored token
+function fetchFromBackground(url) {
+    return new Promise((resolve, reject) => {
+        try {
+            chrome.runtime.sendMessage({ action: 'fetchWithToken', url }, (response) => {
+                if (!response) return reject('no_response');
+                if (response.error) return reject(response.error);
+                resolve(response.data || response);
+            });
+        } catch (e) {
+            reject(e);
         }
-    } catch (e) {
-        console.error('checkLoginStatus error', e);
-    }
+    });
 }
 
-// login UI is disabled by user request — do not run status checks or observe DOM
+// Allow background/service-worker to ask the page (via content script) to perform
+// a same-origin fetch using the page context so cookies/session auth is used and
+// CORS isn't an issue for portal-origin requests.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || !message.action) return;
+
+    if (message.action === 'fetchFromPage') {
+        const url = message.url;
+        fetch(url, { credentials: 'include', headers: { 'Accept': 'application/json' } })
+            .then(async (resp) => {
+                const status = resp.status;
+                let data = null;
+                try { data = await resp.json(); } catch (e) { data = null; }
+                sendResponse({ status, ok: resp.ok, data });
+            })
+            .catch(err => {
+                sendResponse({ error: String(err) });
+            });
+
+        return true;
+    }
+});
 
 function timeToSeconds(time) {
     let [hours, minutes, seconds] = time.split(':').map(Number);
@@ -126,17 +134,6 @@ function secondsToTime(seconds) {
 }
 function calculateTimeDifference() {
   return "Calculating...";
-}
-
-// helper to ask background to fetch an URL with stored token
-function fetchFromBackground(url) {
-    return new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({ action: 'fetchWithToken', url }, (response) => {
-            if (!response) return reject('no_response');
-            if (response.error) return reject(response.error);
-            resolve(response.data);
-        });
-    });
 }
 
 // API-based calculation. Returns a formatted string similar to the previous implementation.
@@ -248,15 +245,15 @@ async function calculateTimeDifferenceUsingApi() {
     var weekPreviosERTimeString = "\n\n=> Time duration of previous days of this week : " + weekPreviosERTime;
 
     var diffSecond = targetTimeSeconds - liveDurationSeconds;
-    var leaveTImeString = addSecondsToCurrentTime(diffSecond);
-    var leaveTImeSecond = timeToSeconds(leaveTImeString)
-    var leaveSecondPrevious = secondsToTime((weekPreviosERTime.includes("-")) ? leaveTImeSecond + weekPreviosERTimeSecond : leaveTImeSecond - weekPreviosERTimeSecond)
+    var leaveTimeString = addSecondsToCurrentTime(diffSecond);
+    var leaveTimeSecond = timeToSeconds(leaveTimeString)
+    var leaveSecondPrevious = secondsToTime((weekPreviosERTime.includes("-")) ? leaveTimeSecond + weekPreviosERTimeSecond : leaveTimeSecond - weekPreviosERTimeSecond)
     
     if (timeToSeconds(leaveSecondPrevious) < minLeaveTimeSeconds) leaveSecondPrevious = minLeaveTime;
 
     return (liveDurationSeconds < targetTimeSeconds) ? 
         "=> Need to stay in office for : "+secondsToTime(targetTimeSeconds - liveDurationSeconds)+
-        "\n\n=> You can leave at : "+ leaveTImeString + weekPreviosERTimeString +
+        "\n\n=> You can leave at : "+ leaveTimeString + weekPreviosERTimeString +
         "\n\n=> You can leave at : "+ leaveSecondPrevious +" by using previous days time of this week." : 
         "=> You can leave now.\n\n => As your time is over for today.\n\n=> Your extra time is : "
         +secondsToTime(liveDurationSeconds - targetTimeSeconds)+"."+ weekPreviosERTimeString;
@@ -282,23 +279,56 @@ let projectName = "";
 let projectTask = "";
 let currentProject = "";
 
-// Function to load project selection from chrome.storage.local
-// Read saved project/task and optionally call callback when available.
-function setTimePortal(callback) {
-    chrome.storage.local.get(["currentProject", "currentTask"], function (data) {
-        // Use explicit project+task saved by the popup. If not available, clear values.
-        if (data.currentProject && data.currentTask) {
-            projectName = data.currentProject;
-            projectTask = data.currentTask;
-            currentProject = data.currentProject;
-        } else {
-            projectName = "";
-            projectTask = "";
-            currentProject = "";
-        }
+// Function to load project selection from chrome.storage.local; falls back to API first entry if nothing is saved.
+function setTimePortal() {
+    return new Promise((resolve) => {
+        try {
+            chrome.storage.local.get(["currentProject", "currentTask"], async function (data) {
+                try {
+                    if (data.currentProject && data.currentTask) {
+                        projectName = data.currentProject;
+                        projectTask = data.currentTask;
+                        currentProject = data.currentProject;
+                        return resolve();
+                    }
 
-        // invoke optional callback so callers can rely on updated values
-        if (typeof callback === 'function') callback();
+                    // Fallback: fetch first project/task from API so we still auto-select something.
+                    try {
+                        const resp = await fetchFromBackground('https://api.portal.inexture.com/api/v1/project/my-tasks?public_access=true&page=1&page_size=50');
+                        if (resp && resp.results && resp.results.length) {
+                            const first = resp.results[0];
+                            projectName = first.project_name;
+                            projectTask = first.task_name;
+                            currentProject = first.project_name;
+                            chrome.storage.local.set({ currentProject: projectName, currentTask: projectTask });
+                        }
+                    } catch (e) {
+                        console.warn('setTimePortal: API fallback failed', e);
+                    }
+                } catch (e) { /* ignore */ }
+                resolve();
+            });
+        } catch (e) {
+            console.warn('setTimePortal error', e);
+            resolve();
+        }
+    });
+}
+
+// Wait for modal/dialog element to appear. Returns the modal element or null if timed out.
+function waitForModal(timeout = 4000, interval = 120) {
+    const modalSelectors = ['[role="dialog"]', '.inexture-Modal-root', '.inexture-Modal', '.modal', '.Dialog-root', '.mantine-Modal', '.inexture-Popover-root'];
+    const end = Date.now() + timeout;
+    return new Promise((resolve) => {
+        const check = () => {
+            for (const sel of modalSelectors) {
+                const el = document.querySelector(sel);
+                if (el) return resolve(el);
+            }
+            if (Date.now() < end) setTimeout(check, interval);
+            else resolve(null);
+        };
+        check();
     });
 }
 
@@ -306,23 +336,24 @@ function setTimePortal(callback) {
 function attachButtonEventListener() {
     const addButton = document.querySelector("button#add_worklog_btn_id");
 
-    if (addButton) {
-            addButton.addEventListener('click', () => {
+    if (addButton && !addButton.dataset.intellimateBound) {
+        addButton.addEventListener("click", async () => {
+            getAndSetWorklogTime();
+            setTimeout(async () => {
+                await setTimePortal();
+                const modal = await waitForModal(4500);
+                if (modal) {
+                    selectProjectAndTask(projectName, projectTask, modal);
+                } else {
+                    selectProjectAndTask(projectName, projectTask);
+                }
+            }, 500);
+            
+            setTimeout(() => {
                 getAndSetWorklogTime();
-
-                // Ensure we read stored project/task first and then try selection.
-                // Use a short timeout after storage is read to let the portal UI open dropdowns.
-                setTimePortal(() => {
-                    setTimeout(() => {
-                        selectProjectAndTask(projectName, projectTask);
-                    }, 350);
-                });
-
-                // Keep updating the worklog field shortly after opening the modal.
-                setTimeout(() => {
-                    getAndSetWorklogTime();
-                }, 1000);
-            });
+            }, 1000);
+        });
+        addButton.dataset.intellimateBound = "1";
     }
 }
 
@@ -402,63 +433,114 @@ function getAndSetLastDayTimeEntry() {
         console.log("Yeesterday time entry loaded")
         saveTimeEntry(yesterday, yesterdayTimeEntry);
     } else {
-        clearInterval(yesterdayTimeLoadInterval)
+        clearInterval(yesterdayTimeLoadInterval);
+        yesterdayTimeLoadInterval = null;
     }
 }
 
-function selectProjectAndTask(project, task) {
+function selectProjectAndTask(project, task, modalContext) {
     if (project && task) {
-        console.log('Auto-select -> project:', project, 'task:', task);
-        selectDropdownOption("Select Project", project, 500);
+        selectDropdownOption("Select Project", project, 500, modalContext);
         setTimeout(() => {
-            selectDropdownOption("Select Task", task, 500);
-        }, 1000); // Ensuring tasks load after selecting the project
+            selectDropdownOption("Select Task", task, 500, modalContext);
+        }, 900); // Ensuring tasks load after selecting the project
     }
 }
 
-function selectDropdownOption(placeholder, dropValue, waitTime = 500) {
-    const inputField = document.querySelector(`input[placeholder='${placeholder}']`);
+function selectDropdownOption(placeholder, dropValue, waitTime = 500, ctx = document, retried = false) {
+    function findTrigger() {
+        const selectors = [
+            `[placeholder='${placeholder}']`,
+            `[aria-label='${placeholder}']`,
+            `[placeholder*='${placeholder}']`,
+            `[aria-label*='${placeholder}']`,
+            `button[title*='${placeholder}']`,
+            `div[role='combobox']`,
+            `button[role='combobox']`,
+            `select`
+        ];
+        for (const sel of selectors) {
+            const el = ctx.querySelector(sel);
+            if (el) return el;
+        }
 
-    if (inputField) {
-        inputField.click();
-
-        setTimeout(() => {
-            let foundDropdown = false;
-
-            document.querySelectorAll(".inexture-Popover-dropdown.inexture-Select-dropdown").forEach(dropdown => {
-                if (dropdown.style.display !== 'none' && dropdown.offsetHeight > 0 && dropdown.offsetWidth > 0) {
-                    let selectedOption = null;
-                    dropdown.querySelectorAll("div[data-combobox-option='true']").forEach(option => {
-                        const textValue = option.innerText.trim();
-                        // Match exact or substring (tolerant match) to handle small formatting differences
-                        if (textValue === dropValue || textValue.includes(dropValue)) {
-                            selectedOption = option;
-                        }
-                    });
-
-                    if (selectedOption) {
-                        selectedOption.click();
-                        foundDropdown = true;
-                    } else {
-                        console.warn(`Dropdown option '${dropValue}' not found`);
+        // try label text
+        const labels = Array.from(ctx.querySelectorAll('label'));
+        for (const lab of labels) {
+            try {
+                if (lab.innerText && lab.innerText.trim().toLowerCase().includes(placeholder.toLowerCase())) {
+                    const container = lab.parentElement || lab.closest('div');
+                    if (container) {
+                        const candidate = container.querySelector('button, input, select, div[role="combobox"], .inexture-Select-control, .mantine-Select-control');
+                        if (candidate) return candidate;
                     }
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        // fallback: any element that shows placeholder text
+        const all = Array.from(ctx.querySelectorAll('button,div,span'));
+        for (const el of all) {
+            try {
+                if (el.innerText && el.innerText.trim().toLowerCase().includes(placeholder.toLowerCase())) {
+                    const candidate = el.querySelector('button, input, select, div[role="combobox"]');
+                    if (candidate) return candidate;
+                }
+            } catch (e) {}
+        }
+        return null;
+    }
+
+    const trigger = findTrigger();
+    if (!trigger) {
+        console.warn(`Dropdown trigger for '${placeholder}' not found`);
+        return;
+    }
+
+    try { trigger.click(); } catch (e) { try { trigger.focus(); trigger.click(); } catch (_) {} }
+
+    setTimeout(() => {
+        let foundDropdown = false;
+
+        const dropdownNodes = document.querySelectorAll(".inexture-Popover-dropdown.inexture-Select-dropdown, .mantine-Select-dropdown, [role='listbox']");
+        dropdownNodes.forEach(dropdown => {
+            if (dropdown.style.display === 'none' || dropdown.offsetHeight <= 0 || dropdown.offsetWidth <= 0) return;
+            let selectedOption = null;
+            dropdown.querySelectorAll("div[data-combobox-option='true'], [role='option']").forEach(option => {
+                const textValue = option.innerText.trim();
+                if (textValue === dropValue || textValue.includes(dropValue)) {
+                    selectedOption = option;
                 }
             });
 
-            if (!foundDropdown) {
+            if (selectedOption) {
+                selectedOption.click();
+                foundDropdown = true;
+            }
+        });
+
+        if (!foundDropdown) {
+            if (!retried) {
+                // try once more after a short delay
+                setTimeout(() => selectDropdownOption(placeholder, dropValue, waitTime, ctx, true), 300);
+            } else {
                 console.warn('No visible dropdown was found or options were not selected');
             }
-        }, waitTime);
-    } else {
-        console.warn(`Input field with placeholder '${placeholder}' not found`);
-    }
+        }
+    }, waitTime);
 }
 
 function timeEntryPageCheck() {
-    if(window.location.pathname == "/time-entry") {
-        yesterdayTimeLoadInterval = setInterval(function () {                                                                                                                                                           
-            getAndSetLastDayTimeEntry();
-        }, 3000);
+    const onTimeEntry = window.location.pathname == "/time-entry";
+    if (onTimeEntry) {
+        if (!yesterdayTimeLoadInterval) {
+            yesterdayTimeLoadInterval = setInterval(function () {
+                getAndSetLastDayTimeEntry();
+            }, 3000);
+        }
+    } else if (yesterdayTimeLoadInterval) {
+        clearInterval(yesterdayTimeLoadInterval);
+        yesterdayTimeLoadInterval = null;
     }
 }
 

@@ -8,27 +8,72 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.webRequest.onBeforeSendHeaders.addListener(
     
     function(details) {
-        console.log("Hello");
+    
         try {
             if (!details.requestHeaders) return;
-            console.log("Hello")
+            
             for (const header of details.requestHeaders) {
-                if (header.name && header.name.toLowerCase() === 'authorization' && header.value && header.value.startsWith('Bearer ')) {
+                try {
+                    if (!header.name || header.name.toLowerCase() !== 'authorization') continue;
+                    if (!header.value || !header.value.startsWith('Bearer ')) continue;
+
                     const token = header.value.split(' ')[1];
+                    // only accept tokens issued for portal hosts to avoid capturing unrelated tokens
+                    if (!details.url || (!details.url.includes('portal.inexture.com') && !details.url.includes('api.portal.inexture.com'))) {
+                        console.log('Ignoring bearer token from non-portal host:', details.url);
+                        continue;
+                    }
+
                     const meta = {
                         tokenCapturedAt: new Date().toISOString(),
                         url: details.url,
                         initiator: details.initiator || details.originUrl || null,
                         tabId: details.tabId
                     };
-                    console.log('token', token);         
 
-                    chrome.storage.local.set({ lastBearerToken: token, lastBearerMeta: meta }, function() {
-                        console.log('Captured Bearer token from', details.url);
+                    console.log('Captured bearer token candidate from portal URL', details.url);
+
+                    // Only validate/store if it's different from the last stored token
+                    chrome.storage.local.get(['lastBearerToken'], async function(data) {
+                        try {
+                            if (data && data.lastBearerToken === token) {
+                                console.log('Captured token is same as stored token — skipping validation.');
+                                return;
+                            }
+
+                            // validate token by calling a lightweight portal API endpoint
+                            try {
+                                const validateUrl = 'https://api.portal.inexture.com/api/v1/project/my-tasks?public_access=true&page=1&page_size=1';
+                                const vresp = await fetch(validateUrl, { headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' } });
+                                const vstatus = vresp.status;
+                                let vdata = null;
+                                try { vdata = await vresp.json(); } catch (e) { vdata = null; }
+
+                                if (vstatus === 401 || (vdata && JSON.stringify(vdata).toLowerCase().includes('token_not_valid'))) {
+                                    console.warn('Captured bearer token is invalid for portal API (status=401) — ignoring.');
+                                    // remove any stale token if it was previously stored
+                                    try { chrome.storage.local.remove('lastBearerToken'); } catch (e) {}
+                                    return;
+                                }
+
+                                if (vresp.ok) {
+                                    // token appears valid — store it
+                                    chrome.storage.local.set({ lastBearerToken: token, lastBearerMeta: meta }, function() {
+                                        console.log('Validated and stored bearer token from', details.url);
+                                    });
+                                } else {
+                                    console.warn('Token validation returned non-ok status', vstatus, vdata);
+                                }
+                            } catch (err) {
+                                console.warn('Error validating captured token:', err);
+                            }
+                        } catch (e) { console.warn('Error handling captured token', e); }
                     });
 
                     // We don't modify the request, only read. Break after first match.
                     break;
+                } catch (e) {
+                    console.warn('Error processing header', e);
                 }
             }
         } catch (e) {
@@ -38,12 +83,20 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
         // do not modify headers
         return {};
     },
-    { urls: ["<all_urls>"] },
+    { urls: ["*://portal.inexture.com/*", "*://api.portal.inexture.com/*", "*://*.portal.inexture.com/*"] },
     ["requestHeaders", "extraHeaders"]
 );
 
 // Allow content scripts to ask the background to fetch API endpoints (so token isn't exposed)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // small developer-friendly message hooks: content-script pings are harmless and help debugging
+    if (message && message.action === 'intellimate_event') {
+        try {
+            const info = message.event + (message.source ? (' (' + message.source + ')') : '');
+            console.log('content-script event:', info, message);
+        } catch (e) { console.warn('Error logging intellimate_event', e); }
+    }
+
     if (!message || !message.action) return;
 
     if (message.action === 'fetchWithToken') {
@@ -87,7 +140,79 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     try { chrome.runtime.sendMessage({ action: 'authRequired', status: 401 }); } catch (e) { }
                 }
 
-                sendResponse({ status, ok: resp.ok, data: parsed });
+                // If fetch succeeded or returned useful HTTP status, respond immediately.
+                if (resp && (resp.ok || status !== 0)) {
+                    sendResponse({ status, ok: resp.ok, data: parsed });
+                    return;
+                }
+
+                // If we reach here it means the direct background fetch failed (could be
+                // due to lack of cookies/CORS). Try to use a portal page tab to perform
+                // the request from the page (which has cookie session and same-origin privileges).
+                try {
+                    chrome.tabs.query({ url: '*://portal.inexture.com/*' }, function(tabs) {
+                        const handlePageFetch = (tabId) => {
+                            chrome.tabs.sendMessage(tabId, { action: 'fetchFromPage', url }, (pageResp) => {
+                                if (!pageResp) {
+                                    sendResponse({ status, ok: resp.ok, data: parsed });
+                                    return;
+                                }
+
+                                // if page fetch returned 401, clear saved token and notify UI
+                                if (pageResp.status === 401) {
+                                    try { chrome.storage.local.remove('lastBearerToken'); } catch(e) {}
+                                    try { chrome.runtime.sendMessage({ action: 'authRequired', status: 401 }); } catch(e) {}
+                                }
+
+                                // If the page fetch returned an Authorization bearer token in headers
+                                // (page may cause the token to be issued via a redirect or XHR), we rely
+                                // on our webRequest capture to store it. If not, just pass the page response back.
+                                sendResponse(pageResp);
+                            });
+                        };
+
+                        if (!tabs || !tabs.length) {
+                            // No portal tab available — open a temporary background tab and ask it to fetch
+                            chrome.tabs.create({ url: 'https://portal.inexture.com/time-entry', active: false }, function(newTab) {
+                                if (!newTab || !newTab.id) { sendResponse({ status, ok: resp.ok, data: parsed }); return; }
+
+                                const createdTabId = newTab.id;
+
+                                // wait for the tab to finish loading
+                                const onUpdated = function(tabId, changeInfo) {
+                                    if (tabId !== createdTabId) return;
+                                    if (changeInfo.status === 'complete') {
+                                        chrome.tabs.onUpdated.removeListener(onUpdated);
+
+                                        // ask the tab to do the fetch
+                                        handlePageFetch(createdTabId);
+
+                                        // close the temporary tab after a short delay to allow response
+                                        setTimeout(() => {
+                                            try { chrome.tabs.remove(createdTabId); } catch(e) {}
+                                        }, 2000);
+                                    }
+                                };
+
+                                chrome.tabs.onUpdated.addListener(onUpdated);
+                                // also set a timeout to abort if the tab never loads
+                                setTimeout(() => {
+                                    chrome.tabs.onUpdated.removeListener(onUpdated);
+                                    // if we didn't yet get a response, fallback to original result
+                                    sendResponse({ status, ok: resp.ok, data: parsed });
+                                }, 8000);
+                            });
+                        } else {
+                            // pick first matching tab and ask it to fetch
+                            handlePageFetch(tabs[0].id);
+                        }
+                    });
+                    return;
+                } catch (e) {
+                    // fallback: send original response
+                    sendResponse({ status, ok: resp.ok, data: parsed });
+                    return;
+                }
             } catch (err) {
                 sendResponse({ error: String(err) });
             }
