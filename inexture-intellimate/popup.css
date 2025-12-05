@@ -49,15 +49,6 @@ button {
     cursor: pointer;
 }
 
-#openPortal {
-    background-color: #007bff;
-    color: white;
-}
-
-#openPortal:hover {
-    background-color: #0056b3;
-}
-
 #saveProject {
     background-color: #28a745;
     color: white;
@@ -93,6 +84,51 @@ hr {
 .result-row strong { display:inline-block; width:170px; }
 #customTarget { width:120px; }
 #refreshBtn, #calcBtn { flex:1; }
+.notice {
+    margin: 8px 0 4px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid #dbe4ff;
+    background: linear-gradient(135deg, #f8faff 0%, #f2f6ff 100%);
+    font-size: 12.5px;
+    color: #1f2a44;
+}
+.notice-alert {
+    border-color: #f2c8c8;
+    background: #fff8f8;
+    color: #7f1d1d;
+}
+.footer-note {
+    margin-top: 14px;
+    padding: 12px 10px;
+    border: 1px solid #e2e6f0;
+    border-radius: 10px;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(135deg, #fdfdff 0%, #f5f8ff 100%);
+    box-shadow: 0 6px 14px rgba(24, 38, 90, 0.12);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    color: #394155;
+    letter-spacing: 0.25px;
+}
+.footer-note::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 20% 20%, rgba(62, 122, 255, 0.08), transparent 45%);
+    pointer-events: none;
+}
+.footer-accent {
+    width: 6px;
+    height: 100%;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #1f6bff 0%, #55c0ff 100%);
+    box-shadow: 0 0 12px rgba(31, 107, 255, 0.35);
+}
+.footer-text strong { color: #1f6bff; font-weight: 800; }
 
 /* loader styles */
 .loader { display:flex; align-items:center; gap:8px; color:#333; padding:6px 4px; }

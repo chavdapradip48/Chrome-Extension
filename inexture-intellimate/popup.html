@@ -9,12 +9,6 @@
 </head>
 <body>
     <div class="container">
-        <h3>Time Entry Helper</h3>
-        
-        <button id="openPortal">Go to Portal</button>
-
-        <hr>
-
         <h4>Project Selection</h4>
         <label for="projectDropdown">Choose a project:</label>
         <select id="projectDropdown"></select>
@@ -47,6 +41,8 @@
             <label><input type="checkbox" id="useWeeklyExtra" checked /> Use weekly extra if available</label>
         </div>
 
+        <div id="shortDayNotice" class="notice" style="display:none;"></div>
+
         <div class="results">
             <div id="calcAt" style="font-size:11px; color:#555; margin-bottom:8px; display:none;">Calculated at: <span id="calcAtTime"></span></div>
             <div id="resultsLoader" style="display:none;" class="loader"><span class="spinner"></span>Calculating...</div>
@@ -60,6 +56,11 @@
         <div class="row">
             <button id="refreshBtn">Refresh</button>
             <button id="calcBtn">Calculate</button>
+        </div>
+
+        <div class="footer-note">
+            <span class="footer-accent"></span>
+            <span class="footer-text">Developed by <strong>Pradip Chavda</strong></span>
         </div>
     </div>
 </body>

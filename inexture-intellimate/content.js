@@ -1,54 +1,3 @@
-var isButtonAdded = false;
-var targetTimeSeconds = timeToSeconds('08:20:00');
-var dayMustTimeSeconds = timeToSeconds('07:00:00');
-var dayExtraUseTimeSeconds = timeToSeconds('01:20:00');
-var minLeaveTime = "17:30:00";
-var dayStartTime = "10:00:00";
-var minLeaveTimeSeconds = timeToSeconds(minLeaveTime);
-
-function checkAndAddButton() {
-    if (window.location.pathname !== "/time-entry") {
-        var stickButton = document.getElementById("sticky-button");
-        if (stickButton) {
-            stickButton.remove();
-            isButtonAdded = false;
-        }
-        return;
-    }
-    if (isButtonAdded) return;
-
-    isButtonAdded = true;
-    addButtonInBody('Calculate Time', 'sticky-button', '#007bff', 'white');
-    var calculateBtn = document.getElementById('sticky-button');
-    if (calculateBtn) {
-        calculateBtn.addEventListener('click', async function () {
-            try {
-                const msg = await calculateTimeDifferenceUsingApi();
-                alert(msg);
-            } catch (e) {
-                console.error('Error calculating time:', e);
-                alert('Error calculating time: ' + e);
-            }
-        });
-    }
-}
-function addButtonInBody(name, id, backgroudColor, color) {
-  const button = document.createElement('button');
-  button.id = id;
-  button.textContent = name;
-  document.body.appendChild(button);
-  button.style.position = 'fixed';
-  button.style.left = '20px';
-  button.style.bottom = '20px';
-  button.style.backgroundColor = backgroudColor;
-  button.style.color = color;
-  button.style.padding = '10px 20px';
-  button.style.border = 'none';
-  button.style.borderRadius = '5px';
-  button.style.cursor = 'pointer';
-  button.style.zIndex = '999';
-}
-
 var timeEntryLoad = setInterval(function () {                                                                                                                                                           
     var yesterdayTimeEnt = getWorklogTimeByDate(getSpecifiedDayStringFromToday(-1));
     var currentTimeType = document.querySelector('input.globalTable-Input-input.globalTable-Select-input[aria-haspopup="listbox"]');
@@ -64,9 +13,6 @@ var timeEntryLoad = setInterval(function () {
     if(currentTimeType && currentTimeType.value != "Today") loadWorklogTimesInLocalStorage();
 }, 3000);
 
-
-
-
 function getSpecifiedDayStringFromToday(offset) {
     let date = new Date();
     date.setDate(date.getDate() + offset);
@@ -77,10 +23,6 @@ function getSpecifiedDayStringFromToday(offset) {
     else if (offset < 0 && (day === 6 || day === 0)) date.setDate(date.getDate() - (day === 6 ? 1 : 2));
 
     return date.toLocaleDateString('en-GB');
-}
-
-if(window.location.host === "portal.inexture.com") {
-    var timeEntryLoop = setInterval(checkAndAddButton, 2000);
 }
 
 // helper to ask background to fetch an URL with stored token
@@ -120,160 +62,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 });
-
-function timeToSeconds(time) {
-    let [hours, minutes, seconds] = time.split(':').map(Number);
-    return hours * 3600 + minutes * 60 + seconds;
-}
-function secondsToTime(seconds) {
-    let hours = Math.floor(seconds / 3600);
-    seconds %= 3600;
-    let minutes = Math.floor(seconds / 60);
-    seconds %= 60;
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}
-function calculateTimeDifference() {
-  return "Calculating...";
-}
-
-// API-based calculation. Returns a formatted string similar to the previous implementation.
-async function calculateTimeDifferenceUsingApi() {
-    // get earlyTimeString from page if available (used for early arrivals adjustment)
-    let earlyTimeString = null;
-    try {
-        const table = document.getElementsByClassName("mrt-table")[0];
-        const todayEntry = table && table.rows[1];
-        if (todayEntry) {
-            earlyTimeString = todayEntry.getElementsByTagName("td")[1].querySelectorAll("div.globalTable-Flex-root > div")[0].querySelector("div span.globalTable-Badge-label").innerText;
-        }
-    } catch (e) {
-        // ignore
-    }
-
-    const today = new Date();
-    const month = today.getMonth() + 1;
-    const year = today.getFullYear();
-    const todayISO = today.toISOString().slice(0,10); // YYYY-MM-DD
-
-    let liveDurationSeconds = null;
-    try {
-        const liveUrl = `https://api.portal.inexture.com/api/v1/time-entry/my_live_time_entry?month=${month}&year=${year}`;
-        const liveResp = await fetchFromBackground(liveUrl);
-        if (liveResp && liveResp.results && liveResp.results.length) {
-            // find today's entry if present
-            const todayEntry = liveResp.results.find(r => r.log_date === todayISO) || liveResp.results[0];
-            if (todayEntry && todayEntry.total_duration) {
-                liveDurationSeconds = timeToSeconds(todayEntry.total_duration);
-            }
-        }
-    } catch (err) {
-        console.warn('live API fetch failed:', err);
-    }
-
-    // Fallback to scraping if API didn't return live duration
-    if (liveDurationSeconds === null) {
-        try {
-            const table = document.getElementsByClassName("mrt-table")[0];
-            const todayEntry = table && table.rows[1];
-            if (todayEntry) {
-                liveDurationSeconds = timeToSeconds(todayEntry.cells[todayEntry.cells.length - 2].innerText);
-            } else {
-                liveDurationSeconds = 0;
-            }
-        } catch (e) {
-            liveDurationSeconds = 0;
-        }
-    }
-
-    // Adjust early arrival like previous logic
-    if (earlyTimeString && earlyTimeString.startsWith("09")) {
-        liveDurationSeconds = liveDurationSeconds - (timeToSeconds(dayStartTime) - timeToSeconds(earlyTimeString));
-    }
-
-    // Fetch monthly entries and compute week extra/deficit
-    let weekPreviosERTime = "00:00:00";
-    try {
-        const weekUrl = `https://api.portal.inexture.com/api/v1/time-entry/my_time_entry/?month=${month}&year=${year}&page=1&page_size=50`;
-        const weekResp = await fetchFromBackground(weekUrl);
-        if (weekResp && weekResp.results) {
-            // compute start of week (Monday)
-            const now = new Date();
-            const day = now.getDay();
-            const diffToMonday = (day === 0) ? 6 : (day - 1);
-            const monday = new Date(now);
-            monday.setDate(now.getDate() - diffToMonday);
-            monday.setHours(0,0,0,0);
-
-            // collect entries within this week (mon..today)
-            let weeklySeconds = 0;
-            weekResp.results.forEach(r => {
-                if (!r.log_date || !r.total_duration) return;
-                const entryDate = new Date(r.log_date + 'T00:00:00');
-                if (entryDate >= monday && entryDate <= now) {
-                    try {
-                        weeklySeconds += timeToSeconds(r.total_duration);
-                    } catch (e) {}
-                }
-            });
-
-            // count working days from monday to today (exclude weekends)
-            let workDays = 0;
-            for (let d = new Date(monday); d <= now; d.setDate(d.getDate() + 1)) {
-                const wd = d.getDay();
-                if (wd !== 0 && wd !== 6) workDays++;
-            }
-
-            const targetWeekTillToday = targetTimeSeconds * workDays;
-            if (weeklySeconds > targetWeekTillToday) {
-                weekPreviosERTime = secondsToTime(weeklySeconds - targetWeekTillToday);
-            } else {
-                weekPreviosERTime = '-' + secondsToTime(targetWeekTillToday - weeklySeconds);
-            }
-        }
-    } catch (err) {
-        console.warn('weekly API fetch failed:', err);
-        // fallback to existing DOM-based calculation
-        try {
-            weekPreviosERTime = getExtraOrRemainOfWeek();
-        } catch (e) {
-            weekPreviosERTime = "00:00:00";
-        }
-    }
-
-    var weekPreviosERTimeSecond = timeToSeconds(weekPreviosERTime.replace('-', ''));
-    if(weekPreviosERTimeSecond > dayExtraUseTimeSeconds) weekPreviosERTimeSecond = dayExtraUseTimeSeconds;
-    var weekPreviosERTimeString = "\n\n=> Time duration of previous days of this week : " + weekPreviosERTime;
-
-    var diffSecond = targetTimeSeconds - liveDurationSeconds;
-    var leaveTimeString = addSecondsToCurrentTime(diffSecond);
-    var leaveTimeSecond = timeToSeconds(leaveTimeString)
-    var leaveSecondPrevious = secondsToTime((weekPreviosERTime.includes("-")) ? leaveTimeSecond + weekPreviosERTimeSecond : leaveTimeSecond - weekPreviosERTimeSecond)
-    
-    if (timeToSeconds(leaveSecondPrevious) < minLeaveTimeSeconds) leaveSecondPrevious = minLeaveTime;
-
-    return (liveDurationSeconds < targetTimeSeconds) ? 
-        "=> Need to stay in office for : "+secondsToTime(targetTimeSeconds - liveDurationSeconds)+
-        "\n\n=> You can leave at : "+ leaveTimeString + weekPreviosERTimeString +
-        "\n\n=> You can leave at : "+ leaveSecondPrevious +" by using previous days time of this week." : 
-        "=> You can leave now.\n\n => As your time is over for today.\n\n=> Your extra time is : "
-        +secondsToTime(liveDurationSeconds - targetTimeSeconds)+"."+ weekPreviosERTimeString;
-}
-function addSecondsToCurrentTime(secondsToAdd) {
-    let currentTime = new Date();
-    currentTime.setSeconds(currentTime.getSeconds() + secondsToAdd);
-    let hours = String(currentTime.getHours()).padStart(2, '0');
-    let minutes = String(currentTime.getMinutes()).padStart(2, '0');
-    let seconds = String(currentTime.getSeconds()).padStart(2, '0');
-    return `${hours}:${minutes}:${seconds}`;
-}
-function getExtraOrRemainOfWeek() {
-    var totalTimeTillNowString = document.querySelector('main div div .inexture-ScrollArea-root .inexture-ScrollArea-viewport div .inexture-Paper-root div .grid-cols-1 .inexture-Paper-root:nth-child(2) div:last-child p').textContent;
-    let [hours, minutes, seconds] = totalTimeTillNowString.match(/\d+/g).map(Number);
-    var weeklySeconds = (hours * 3600 + minutes * 60 + seconds);
-    var attendedDays = Math.round(weeklySeconds / targetTimeSeconds);
-    var targetWeekTillToday = (targetTimeSeconds * attendedDays);
-    return (targetWeekTillToday < weeklySeconds) ? secondsToTime(weeklySeconds - targetWeekTillToday) : "-" + secondsToTime(targetWeekTillToday - weeklySeconds);
-}
 
 let projectName = "";
 let projectTask = "";

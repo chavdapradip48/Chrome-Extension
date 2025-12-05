@@ -1,7 +1,3 @@
-document.getElementById("openPortal").addEventListener("click", function() {
-    chrome.tabs.create({ url: "https://portal.inexture.com/time-entry" });
-});
-
 document.addEventListener("DOMContentLoaded", function () {
     const projectDropdown = document.getElementById("projectDropdown");
     const saveButton = document.getElementById("saveProject");
@@ -76,6 +72,8 @@ document.addEventListener("DOMContentLoaded", function () {
     const targetSelect = document.getElementById('targetSelect');
     const customTarget = document.getElementById('customTarget');
     const useWeeklyExtra = document.getElementById('useWeeklyExtra');
+    const shortDayNoticeEl = document.getElementById('shortDayNotice');
+    const shortDayOption = targetSelect ? targetSelect.querySelector('option[value="07:00:00"]') : null;
 
     targetSelect.addEventListener('change', () => {
         if (targetSelect.value === 'custom') customTarget.style.display = 'inline-block';
@@ -94,6 +92,26 @@ document.addEventListener("DOMContentLoaded", function () {
         let minutes = Math.floor(seconds/60);
         seconds = seconds % 60;
         return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
+    }
+    function isLastWorkingDay(dateObj) {
+        const d = (dateObj && dateObj instanceof Date) ? dateObj : new Date();
+        return d.getDay() === 5; // Friday treated as last working day
+    }
+    const fullDaySeconds = timeToSeconds('08:20:00');
+    const shortDaySeconds = timeToSeconds('07:00:00');
+    let shortDayUsedBeforeToday = false;
+
+    function setShortDayNotice(message, tone = 'info') {
+        if (!shortDayNoticeEl) return;
+        if (!message) {
+            shortDayNoticeEl.style.display = 'none';
+            shortDayNoticeEl.classList.remove('notice-alert');
+            return;
+        }
+        shortDayNoticeEl.style.display = 'block';
+        if (tone === 'alert') shortDayNoticeEl.classList.add('notice-alert');
+        else shortDayNoticeEl.classList.remove('notice-alert');
+        shortDayNoticeEl.innerText = message;
     }
 
     function getApi(url) {
@@ -240,6 +258,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
             // fetch monthly list and compute this week's extra
             let weeklyExtra = '00:00:00';
+            let shortDayCount = 0;
             try {
                 const list = await getApi(`https://api.portal.inexture.com/api/v1/time-entry/my_time_entry/?month=${month}&year=${year}&page=1&page_size=50`);
                 console.log('my_time_entry response:', list);
@@ -259,7 +278,10 @@ document.addEventListener("DOMContentLoaded", function () {
                         const entryDate = new Date(r.log_date + 'T00:00:00');
                         // include only previous days (>= monday && < startOfToday)
                         if (entryDate >= monday && entryDate < startOfToday) {
-                            weeklySeconds += timeToSeconds(r.total_duration);
+                            const entrySeconds = timeToSeconds(r.total_duration);
+                            weeklySeconds += entrySeconds;
+                            // count short-day usage (any worked day under 8:20)
+                            if (entrySeconds > 0 && entrySeconds < fullDaySeconds) shortDayCount += 1;
                         }
                     });
 
@@ -278,6 +300,16 @@ document.addEventListener("DOMContentLoaded", function () {
                         weeklyExtra = '-' + secondsToTime(targetWeekSeconds - weeklySeconds);
                         lastWeeklySignedSeconds = (weeklySeconds - targetWeekSeconds); // negative
                     }
+
+                    // short-day allowance: only one sub-8:20 day allowed per week
+                    shortDayUsedBeforeToday = shortDayCount > 0;
+                    if (shortDayOption) shortDayOption.disabled = shortDayUsedBeforeToday;
+                    if (shortDayUsedBeforeToday && targetSelect.value === '07:00:00') targetSelect.value = '08:20:00';
+                    if (shortDayUsedBeforeToday) {
+                        setShortDayNotice('7h allowance already used earlier this week.', 'alert');
+                    } else {
+                        setShortDayNotice('One 7h allowance available this week.', 'info');
+                    }
                 }
             } catch (e) {
                 console.warn('error fetching weekly list:', (e && e.message) ? e.message : e);
@@ -285,6 +317,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 else if (e && e.status === 401) weeklyExtra = '—';
                 else weeklyExtra = '—';
                 lastWeeklySignedSeconds = null;
+                shortDayUsedBeforeToday = false;
+                if (shortDayOption) shortDayOption.disabled = false;
+                setShortDayNotice(null);
             }
 
             weeklyExtraEl.innerText = weeklyExtra;
@@ -344,9 +379,19 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         const liveSeconds = timeToSeconds(liveText);
+        const baseRefDate = (baseDate && baseDate instanceof Date) ? baseDate : new Date();
 
         // target selection
         let target = targetSelect.value;
+        const requestedShortDay = target === '07:00:00';
+        const shortDayAllowedNow = !shortDayUsedBeforeToday;
+        if (requestedShortDay && !shortDayAllowedNow) {
+            target = '08:20:00';
+            if (targetSelect.value === '07:00:00') targetSelect.value = '08:20:00';
+            setShortDayNotice('7h allowance already used earlier this week. Minimum 08:20 applies. Weekly minimum stays 41:40.', 'alert');
+        } else if (requestedShortDay && shortDayAllowedNow) {
+            setShortDayNotice('Using your single 7h allowance for this week. Remaining days must meet 08:20 (weekly minimum 41:40).', 'info');
+        }
         if (target === 'custom') {
             const t = customTarget.value; // format HH:MM or HH:MM:SS depending on input
             if (!t) target = '08:20:00';
@@ -358,17 +403,29 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         const targetSeconds = timeToSeconds(target);
 
-        const needSeconds = Math.max(0, targetSeconds - liveSeconds);
+        const weeklyDeficitSeconds = (typeof lastWeeklySignedSeconds === 'number' && lastWeeklySignedSeconds < 0) ? Math.abs(lastWeeklySignedSeconds) : 0;
+        const isLastDay = isLastWorkingDay(baseRefDate);
+        let staySeconds = Math.max(0, targetSeconds - liveSeconds);
+        let enforcedWeeklyDeficit = false;
 
-        if (liveSeconds >= targetSeconds) {
+        if (isLastDay && weeklyDeficitSeconds > 0) {
+            staySeconds += weeklyDeficitSeconds;
+            enforcedWeeklyDeficit = true;
+        }
+
+        if (!enforcedWeeklyDeficit && liveSeconds >= targetSeconds) {
             // Target reached: show target and overtime info
             const overtime = liveSeconds - targetSeconds;
             const overtimeText = secondsToTime(overtime);
             needToStayEl.innerText = `00:00:00 (Target ${secondsToTime(targetSeconds)} reached — +${overtimeText})`;
             leaveAtEl.innerText = 'Now';
         } else {
-            needToStayEl.innerText = secondsToTime(needSeconds);
-            leaveAtEl.innerText = addSecondsToCurrentTime(needSeconds, baseDate);
+            if (enforcedWeeklyDeficit) {
+                needToStayEl.innerText = `${secondsToTime(staySeconds)} (includes weekly deficit ${secondsToTime(weeklyDeficitSeconds)})`;
+            } else {
+                needToStayEl.innerText = secondsToTime(staySeconds);
+            }
+            leaveAtEl.innerText = addSecondsToCurrentTime(staySeconds, baseRefDate);
         }
 
         // using weekly extra
@@ -376,7 +433,7 @@ document.addEventListener("DOMContentLoaded", function () {
         const weeklyText = weeklyExtraEl.innerText;
         const cachedSigned = (typeof lastWeeklySignedSeconds === 'number') ? lastWeeklySignedSeconds : null;
         let leaveWithExtra = '—';
-        if (useWeeklyExtra.checked && weeklyText && weeklyText !== '...' && weeklyText !== 'err' && weeklyText !== '—') {
+        if (!enforcedWeeklyDeficit && useWeeklyExtra.checked && weeklyText && weeklyText !== '...' && weeklyText !== 'err' && weeklyText !== '—') {
             // weeklyText may be '-HH:MM:SS' or 'HH:MM:SS'
             let extraIsNegative;
             let weeklyClean;
@@ -409,7 +466,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 // - if not, anchor = baseDate + required (when target will be reached)
                 let anchorMillis;
                 try {
-                    const baseMs = baseDate && baseDate instanceof Date ? baseDate.getTime() : Date.now();
+                    const baseMs = baseRefDate && baseRefDate instanceof Date ? baseRefDate.getTime() : Date.now();
                     if (liveSeconds >= targetSeconds) {
                         // completed earlier — anchor at the time target was reached
                         const overtimeSeconds = liveSeconds - targetSeconds;
@@ -428,7 +485,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     // today's overtime reduces the previous deficit
                     const remainingDeficitAfterToday = Math.max(0, prevDeficit - todayOvertime);
 
-                    const baseMs = baseDate && baseDate instanceof Date ? baseDate.getTime() : Date.now();
+                    const baseMs = baseRefDate && baseRefDate instanceof Date ? baseRefDate.getTime() : Date.now();
 
                     // If target already reached, remaining deficit must be earned from now onward
                     // (user already has todayOvertime; they need additional remainingDeficitAfterToday seconds)
@@ -449,7 +506,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     const usableSurplus = Math.min(capped, weeklySeconds);
                     // newRequired is how many seconds are actually needed from now
                     // after using previous-days surplus. Use base time for final calculation.
-                    const baseMs = baseDate && baseDate instanceof Date ? baseDate.getTime() : Date.now();
+                    const baseMs = baseRefDate && baseRefDate instanceof Date ? baseRefDate.getTime() : Date.now();
                     const newRequired = Math.max(0, required - usableSurplus);
 
                     // final leave is base + newRequired (shorter than anchor if surplus applies)
@@ -465,7 +522,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
 
-        leaveWithExtraEl.innerText = leaveWithExtra;
+        leaveWithExtraEl.innerText = enforcedWeeklyDeficit ? leaveAtEl.innerText : leaveWithExtra;
     }
 
     refreshBtn.addEventListener('click', refreshDataAndDisplay);
