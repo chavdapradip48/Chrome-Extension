@@ -40,6 +40,80 @@ function fetchFromBackground(url) {
     });
 }
 
+function parseGBDateString(str) {
+    if (!str) return null;
+    const parts = str.split('/');
+    if (parts.length < 3) return null;
+    const [d, m, y] = parts.map(Number);
+    if (!d || !m || !y) return null;
+    const fullYear = y < 100 ? 2000 + y : y;
+    const dt = new Date(fullYear, m - 1, d);
+    return isNaN(dt.getTime()) ? null : dt;
+}
+
+function formatDateToGB(dateObj) {
+    if (!(dateObj instanceof Date) || isNaN(dateObj.getTime())) return null;
+    return dateObj.toLocaleDateString('en-GB');
+}
+
+async function refreshTimeEntriesFromApi(targetDateString) {
+    const baseDate = parseGBDateString(targetDateString) || new Date();
+    const pairs = [];
+    const addPair = (dt) => {
+        pairs.push({ month: dt.getMonth() + 1, year: dt.getFullYear() });
+    };
+    addPair(baseDate);
+    const prev = new Date(baseDate);
+    prev.setMonth(prev.getMonth() - 1);
+    addPair(prev);
+
+    const seen = new Set();
+    const uniquePairs = pairs.filter(p => {
+        const key = `${p.year}-${p.month}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
+    let collected = [];
+    for (const p of uniquePairs) {
+        const url = `https://api.portal.inexture.com/api/v1/time-entry/my_time_entry/?month=${p.month}&year=${p.year}&page=1&page_size=100`;
+        try {
+            const resp = await fetchFromBackground(url);
+            if (resp && resp.results) {
+                const entries = resp.results.map(r => {
+                    const d = r.log_date ? new Date(r.log_date) : null;
+                    const formatted = d ? formatDateToGB(d) : null;
+                    const normalized = normalizeTimeString(r.total_duration) || normalizeTimeString(r.totalDuration) || r.total_duration || r.totalDuration || null;
+                    if (!formatted || !normalized) return null;
+                    return { date: formatted, total: normalized };
+                }).filter(Boolean);
+                collected = collected.concat(entries);
+            }
+        } catch (e) {
+            console.warn('refreshTimeEntriesFromApi error', e);
+        }
+    }
+
+    mergeTimeEntriesIntoStorage(collected);
+    return collected;
+}
+
+function mergeTimeEntriesIntoStorage(entries) {
+    if (!entries || !entries.length) return;
+    let current = [];
+    try { current = JSON.parse(localStorage.getItem("timeEntries")) || []; } catch (e) { current = []; }
+    const map = new Map();
+    current.forEach(item => {
+        if (item && item.date) map.set(item.date, item.total);
+    });
+    entries.forEach(item => {
+        if (item && item.date) map.set(item.date, item.total);
+    });
+    const merged = Array.from(map.entries()).map(([date, total]) => ({ date, total }));
+    localStorage.setItem("timeEntries", JSON.stringify(merged));
+}
+
 // Allow background/service-worker to ask the page (via content script) to perform
 // a same-origin fetch using the page context so cookies/session auth is used and
 // CORS isn't an issue for portal-origin requests.
@@ -126,46 +200,137 @@ function attachButtonEventListener() {
 
     if (addButton && !addButton.dataset.intellimateBound) {
         addButton.addEventListener("click", async () => {
-            getAndSetWorklogTime();
+            // Wait for modal to appear so inputs exist before filling values
+            const modal = await waitForModal(4500);
+            if (modal) lastModalContext = modal;
+
+            await getAndSetWorklogTime(lastModalContext || document);
             setTimeout(async () => {
                 await setTimePortal();
-                const modal = await waitForModal(4500);
-                if (modal) {
-                    selectProjectAndTask(projectName, projectTask, modal);
+                const activeModal = lastModalContext || await waitForModal(4500);
+                if (activeModal) {
+                    lastModalContext = activeModal;
+                    selectProjectAndTask(projectName, projectTask, activeModal);
                 } else {
                     selectProjectAndTask(projectName, projectTask);
                 }
             }, 500);
             
-            setTimeout(() => {
-                getAndSetWorklogTime();
+            setTimeout(async () => {
+                const activeModal = lastModalContext || await waitForModal(4500);
+                if (activeModal) lastModalContext = activeModal;
+                await getAndSetWorklogTime(lastModalContext || document);
             }, 1000);
         });
         addButton.dataset.intellimateBound = "1";
     }
 }
 
-function getAndSetWorklogTime() {
-    var currentWorklogElement = document.querySelector('button[id^="mantine-"].inexture-Input-input.inexture-DatePickerInput-input');
+let lastModalContext = null;
 
-    if(currentWorklogElement) {
-        var currentWorklogDate = currentWorklogElement.innerText.trim();
-        var time = getWorklogTimeByDate(currentWorklogDate);
-        console.log("Total Time:", time);
-        if (time) {
-            let [hours, minutes] = time.split(":");
-            setWorklogTime(hours, minutes);
+async function getAndSetWorklogTime(ctx) {
+    const context = ctx || document;
+    const currentWorklogElement = findCurrentWorklogDateElement(context);
+    const currentWorklogDate = extractDateValue(currentWorklogElement);
+
+    if (!currentWorklogDate) return;
+
+    let timeRaw = getWorklogTimeByDate(currentWorklogDate);
+    // Try to populate cache from API when missing
+    if (!timeRaw) {
+        try {
+            await refreshTimeEntriesFromApi(currentWorklogDate);
+            timeRaw = getWorklogTimeByDate(currentWorklogDate);
+        } catch (e) {
+            console.warn('refreshTimeEntriesFromApi failed', e);
         }
     }
+    // Fallback: read directly from visible table if storage is empty.
+    if (!timeRaw) {
+        timeRaw = getTimeFromTableByDate(currentWorklogDate, context) || null;
+        if (timeRaw) saveTimeEntry(currentWorklogDate, normalizeTimeString(timeRaw) || timeRaw);
+    }
+
+    const parsed = parseTotalTimeToHM(timeRaw);
+    console.log("Total Time:", timeRaw, 'parsed:', parsed);
+    if (parsed) {
+        setWorklogTime(parsed.hours, parsed.minutes);
+    }
+}
+
+function findCurrentWorklogDateElement(ctx = document) {
+    const selectors = [
+        'button[id^=\"mantine-\"].inexture-Input-input.inexture-DatePickerInput-input',
+        'input.inexture-DatePickerInput-input',
+        'input[type=\"date\"]',
+        'input[placeholder*=\"Date\"]',
+        'input[aria-label*=\"Date\"]',
+        'button[aria-label*=\"Date\"]'
+    ];
+    for (const sel of selectors) {
+        const el = ctx.querySelector(sel);
+        if (el) return el;
+    }
+    return null;
+}
+
+function extractDateValue(el) {
+    if (!el) return null;
+    if (typeof el.value === 'string' && el.value.trim()) return el.value.trim();
+    if (el.innerText && el.innerText.trim()) return el.innerText.trim();
+    return null;
+}
+
+function parseTotalTimeToHM(total) {
+    if (!total) return null;
+    const cleaned = total.toString().trim();
+
+    // Match patterns like "8h 30m 0s" or "8h 30m"
+    const hmsMatch = cleaned.match(/^(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?$/i);
+    if (hmsMatch && (hmsMatch[1] || hmsMatch[2] || hmsMatch[3])) {
+        return {
+            hours: (hmsMatch[1] || '0').padStart(2, '0'),
+            minutes: (hmsMatch[2] || '0').padStart(2, '0'),
+            seconds: (hmsMatch[3] || '0').padStart(2, '0')
+        };
+    }
+
+    // Match colon formats like "08:30" or "08:30:00"
+    const colonParts = cleaned.split(':');
+    if (colonParts.length >= 2) {
+        return {
+            hours: (colonParts[0] || '0').padStart(2, '0'),
+            minutes: (colonParts[1] || '0').padStart(2, '0'),
+            seconds: (colonParts[2] || '0').padStart(2, '0')
+        };
+    }
+
+    // Match compact digits like "830" => 8:30
+    const compact = cleaned.match(/^(\d{1,2})(\d{2})$/);
+    if (compact) {
+        return {
+            hours: compact[1].padStart(2, '0'),
+            minutes: compact[2].padStart(2, '0'),
+            seconds: '00'
+        };
+    }
+    return null;
+}
+
+function normalizeTimeString(total) {
+    const parsed = parseTotalTimeToHM(total);
+    if (!parsed) return null;
+    return `${parsed.hours}:${parsed.minutes}:${parsed.seconds}`;
 }
 
 // Function to select worklog time
 function setWorklogTime(hours, minutes) {
     if (hours !== null && minutes !== null) {
         const formattedHours = parseInt(hours, 10).toString();
+        const formattedMinutes = parseInt(minutes, 10).toString();
         selectDropdownOption("Select Hours", formattedHours, 500);
         setTimeout(() => {
-            selectDropdownOption("Select Minutes", minutes, 500);
+            selectDropdownOption("Select Minutes", formattedMinutes, 500);
         }, 1000);
     }
 }
@@ -183,6 +348,24 @@ function saveTimeEntry(date, total) {
     localStorage.setItem("timeEntries", JSON.stringify(timeEntries));
 }
 
+function getTimeFromTableByDate(dateString, ctx = document) {
+    const table = ctx.querySelector(".mrt-table");
+    if (!table) return null;
+    const rows = Array.from(table.rows || []);
+    for (let i = 1; i < rows.length; i++) { // skip header
+        const row = rows[i];
+        const firstCell = row.cells && row.cells[0];
+        if (!firstCell) continue;
+        const dateText = (firstCell.innerText || firstCell.textContent || '').trim();
+        if (dateText === dateString) {
+            const timeCell = row.cells[row.cells.length - 2];
+            if (!timeCell) continue;
+            return (timeCell.innerText || timeCell.textContent || '').trim();
+        }
+    }
+    return null;
+}
+
 function loadWorklogTimesInLocalStorage() {
     var table = document.getElementsByClassName("mrt-table")[0];
     var today = new Date();
@@ -191,18 +374,19 @@ function loadWorklogTimesInLocalStorage() {
     var timeEntries = [];
     for (var i = 1; i < table.rows.length; i++) {
         var row = table.rows[i];
-        var date = row.cells[0].innerText.trim();
-        if (date) {
+            var date = row.cells[0].innerText.trim();
+            if (date) {
             var totalTime = row.cells[row.cells.length - 2].innerText.trim();
             var dateParts = date.split('/');
             var entryMonth = parseInt(dateParts[1], 10);
             if (date === todayFormatted || entryMonth !== currentMonth) break;
-            timeEntries.push({ date: date, total: totalTime });
+            const normalized = normalizeTimeString(totalTime);
+            timeEntries.push({ date: date, total: normalized || totalTime });
         }
     }
     
     if(timeEntries && timeEntries.length != 0) {
-        localStorage.setItem("timeEntries", JSON.stringify(timeEntries));
+        mergeTimeEntriesIntoStorage(timeEntries);
         console.log("Data stored in local storage:", timeEntries);    
     }
 }
@@ -216,10 +400,11 @@ function getAndSetLastDayTimeEntry() {
 
     let timeEntry = getWorklogTimeByDate(yesterday);
     if(!timeEntry) {
-        let yesterdayTimeEntry = lastDayElement.parentElement.parentElement.lastElementChild.firstElementChild.textContent.replace("h ",":").replace("m ",":").replace("s","");
-        if(yesterdayTimeEntry == "0:0:0") return;
+        let yesterdayTimeEntryRaw = lastDayElement.parentElement.parentElement.lastElementChild.firstElementChild.textContent;
+        const normalized = normalizeTimeString(yesterdayTimeEntryRaw);
+        if(!normalized || normalized === "00:00:00") return;
         console.log("Yeesterday time entry loaded")
-        saveTimeEntry(yesterday, yesterdayTimeEntry);
+        saveTimeEntry(yesterday, normalized);
     } else {
         clearInterval(yesterdayTimeLoadInterval);
         yesterdayTimeLoadInterval = null;
@@ -236,6 +421,10 @@ function selectProjectAndTask(project, task, modalContext) {
 }
 
 function selectDropdownOption(placeholder, dropValue, waitTime = 500, ctx = document, retried = false) {
+    const desiredRaw = (dropValue || '').toString().trim();
+    const desired = desiredRaw;
+    const alt = desiredRaw.length === 1 ? desiredRaw.padStart(2, '0') : (desiredRaw.length === 2 && desiredRaw.startsWith('0') ? desiredRaw.slice(1) : desiredRaw);
+
     function findTrigger() {
         const selectors = [
             `[placeholder='${placeholder}']`,
@@ -285,6 +474,25 @@ function selectDropdownOption(placeholder, dropValue, waitTime = 500, ctx = docu
         return;
     }
 
+    // Handle native <select> elements directly without waiting for custom dropdowns.
+    if (trigger.tagName && trigger.tagName.toLowerCase() === 'select') {
+        const options = Array.from(trigger.options || []);
+        const match = options.find(opt => {
+            const text = (opt.innerText || '').trim();
+            const val = (opt.value || '').trim();
+            return text === desired || text === alt || val === desired || val === alt || text.includes(desired);
+        });
+
+        if (match) {
+            trigger.value = match.value;
+            trigger.dispatchEvent(new Event('input', { bubbles: true }));
+            trigger.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+            console.warn(`Option '${dropValue}' not found for '${placeholder}'`);
+        }
+        return;
+    }
+
     try { trigger.click(); } catch (e) { try { trigger.focus(); trigger.click(); } catch (_) {} }
 
     setTimeout(() => {
@@ -296,7 +504,7 @@ function selectDropdownOption(placeholder, dropValue, waitTime = 500, ctx = docu
             let selectedOption = null;
             dropdown.querySelectorAll("div[data-combobox-option='true'], [role='option']").forEach(option => {
                 const textValue = option.innerText.trim();
-                if (textValue === dropValue || textValue.includes(dropValue)) {
+                if (textValue === desired || textValue === alt || textValue.includes(desired) || textValue.includes(alt)) {
                     selectedOption = option;
                 }
             });
