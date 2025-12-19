@@ -114,6 +114,7 @@ document.addEventListener("DOMContentLoaded", function () {
         shortDayNoticeEl.innerText = message;
     }
 
+
     function getApi(url) {
         return new Promise((resolve, reject) => {
             chrome.runtime.sendMessage({ action: 'fetchWithToken', url }, (resp) => {
@@ -273,24 +274,22 @@ document.addEventListener("DOMContentLoaded", function () {
                     monday.setHours(0,0,0,0);
 
                     let weeklySeconds = 0;
+                    const workedDates = new Set();
                     list.results.forEach(r => {
-                        if (!r.log_date || !r.total_duration) return;
+                        if (!r.log_date || typeof r.total_duration !== 'string') return;
                         const entryDate = new Date(r.log_date + 'T00:00:00');
-                        // include only previous days (>= monday && < startOfToday)
-                        if (entryDate >= monday && entryDate < startOfToday) {
-                            const entrySeconds = timeToSeconds(r.total_duration);
-                            weeklySeconds += entrySeconds;
-                            // count short-day usage (any worked day under 8:20)
-                            if (entrySeconds > 0 && entrySeconds < fullDaySeconds) shortDayCount += 1;
+                        if (entryDate < monday || entryDate >= startOfToday) return;
+                        const weekday = entryDate.getDay();
+                        if (weekday === 0 || weekday === 6) return;
+                        const entrySeconds = timeToSeconds(r.total_duration);
+                        weeklySeconds += entrySeconds;
+                        if (entrySeconds > 0) {
+                            workedDates.add(r.log_date);
+                            if (entrySeconds < fullDaySeconds) shortDayCount += 1;
                         }
                     });
 
-                    // count working days from monday to yesterday (exclude today)
-                    let workDays = 0;
-                    for (let d = new Date(monday); d < startOfToday; d.setDate(d.getDate()+1)) {
-                        const wd = d.getDay(); if (wd !== 0 && wd !== 6) workDays++;
-                    }
-
+                    const workDays = workedDates.size;
                     const targetWeekSeconds = timeToSeconds('08:20:00') * workDays;
                     console.log({ monday, startOfToday, workDays, weeklySeconds, targetWeekSeconds });
                     if (weeklySeconds > targetWeekSeconds) {
