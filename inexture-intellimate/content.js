@@ -1,16 +1,13 @@
-var timeEntryLoad = setInterval(function () {                                                                                                                                                           
-    var yesterdayTimeEnt = getWorklogTimeByDate(getSpecifiedDayStringFromToday(-1));
+var timeEntryLoad = setInterval(function () {
+    if (!window.location.pathname.includes("/time-entry")) return;
     var currentTimeType = document.querySelector('input.globalTable-Input-input.globalTable-Select-input[aria-haspopup="listbox"]');
+    var yesterdayTimeEnt = getTimeFromTableByDate(getSpecifiedDayStringFromToday(-1));
 
-    if(!window.location.pathname.includes("/time-entry")) return;
-
-    if(yesterdayTimeEnt) {
-       clearInterval(timeEntryLoad)
-    } else if(!yesterdayTimeEnt && currentTimeType.value != "Today") {
-        clearInterval(timeEntryLoad)
+    if (yesterdayTimeEnt) {
+        clearInterval(timeEntryLoad);
+    } else if (!yesterdayTimeEnt && currentTimeType && currentTimeType.value != "Today") {
+        clearInterval(timeEntryLoad);
     }
-
-    if(currentTimeType && currentTimeType.value != "Today") loadWorklogTimesInLocalStorage();
 }, 3000);
 
 function getSpecifiedDayStringFromToday(offset) {
@@ -95,23 +92,7 @@ async function refreshTimeEntriesFromApi(targetDateString) {
         }
     }
 
-    mergeTimeEntriesIntoStorage(collected);
     return collected;
-}
-
-function mergeTimeEntriesIntoStorage(entries) {
-    if (!entries || !entries.length) return;
-    let current = [];
-    try { current = JSON.parse(localStorage.getItem("timeEntries")) || []; } catch (e) { current = []; }
-    const map = new Map();
-    current.forEach(item => {
-        if (item && item.date) map.set(item.date, item.total);
-    });
-    entries.forEach(item => {
-        if (item && item.date) map.set(item.date, item.total);
-    });
-    const merged = Array.from(map.entries()).map(([date, total]) => ({ date, total }));
-    localStorage.setItem("timeEntries", JSON.stringify(merged));
 }
 
 // Allow background/service-worker to ask the page (via content script) to perform
@@ -235,21 +216,18 @@ async function getAndSetWorklogTime(ctx) {
 
     if (!currentWorklogDate) return;
 
-    let timeRaw = getWorklogTimeByDate(currentWorklogDate);
-    // Try to populate cache from API when missing
-    if (!timeRaw) {
-        try {
-            await refreshTimeEntriesFromApi(currentWorklogDate);
-            timeRaw = getWorklogTimeByDate(currentWorklogDate);
-        } catch (e) {
-            console.warn('refreshTimeEntriesFromApi failed', e);
+    let timeRaw = null;
+    try {
+        const entries = await refreshTimeEntriesFromApi(currentWorklogDate);
+        if (entries && entries.length) {
+            const match = entries.find(entry => entry.date === currentWorklogDate);
+            if (match && match.total) timeRaw = match.total;
         }
+    } catch (e) {
+        console.warn('refreshTimeEntriesFromApi failed', e);
     }
-    // Fallback: read directly from visible table if storage is empty.
-    if (!timeRaw) {
-        timeRaw = getTimeFromTableByDate(currentWorklogDate, context) || null;
-        if (timeRaw) saveTimeEntry(currentWorklogDate, normalizeTimeString(timeRaw) || timeRaw);
-    }
+    // Fallback: read directly from visible table if API doesn't return a match.
+    if (!timeRaw) timeRaw = getTimeFromTableByDate(currentWorklogDate, context) || null;
 
     const parsed = parseTotalTimeToHM(timeRaw);
     console.log("Total Time:", timeRaw, 'parsed:', parsed);
@@ -335,19 +313,6 @@ function setWorklogTime(hours, minutes) {
     }
 }
 
-function getWorklogTimeByDate(dateString) {
-    var storedData = localStorage.getItem("timeEntries");
-    if (!storedData) return null;
-    var entry = JSON.parse(storedData).find(entry => entry.date === dateString);
-    return entry ? entry.total : null;
-}
-
-function saveTimeEntry(date, total) {
-    let timeEntries = JSON.parse(localStorage.getItem("timeEntries")) || [];
-    timeEntries.push({ date, total });
-    localStorage.setItem("timeEntries", JSON.stringify(timeEntries));
-}
-
 function getTimeFromTableByDate(dateString, ctx = document) {
     const table = ctx.querySelector(".mrt-table");
     if (!table) return null;
@@ -366,49 +331,16 @@ function getTimeFromTableByDate(dateString, ctx = document) {
     return null;
 }
 
-function loadWorklogTimesInLocalStorage() {
-    var table = document.getElementsByClassName("mrt-table")[0];
-    var today = new Date();
-    var todayFormatted = today.toLocaleDateString('en-GB');
-    var currentMonth = today.getMonth() + 1;
-    var timeEntries = [];
-    for (var i = 1; i < table.rows.length; i++) {
-        var row = table.rows[i];
-            var date = row.cells[0].innerText.trim();
-            if (date) {
-            var totalTime = row.cells[row.cells.length - 2].innerText.trim();
-            var dateParts = date.split('/');
-            var entryMonth = parseInt(dateParts[1], 10);
-            if (date === todayFormatted || entryMonth !== currentMonth) break;
-            const normalized = normalizeTimeString(totalTime);
-            timeEntries.push({ date: date, total: normalized || totalTime });
-        }
-    }
-    
-    if(timeEntries && timeEntries.length != 0) {
-        mergeTimeEntriesIntoStorage(timeEntries);
-        console.log("Data stored in local storage:", timeEntries);    
-    }
-}
-
 var yesterdayTimeLoadInterval;
 
 function getAndSetLastDayTimeEntry() {
     let lastDayElement = document.evaluate("//p[text()='Last Day']", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
     if (!lastDayElement) return
-    let yesterday = getSpecifiedDayStringFromToday(-1);
-
-    let timeEntry = getWorklogTimeByDate(yesterday);
-    if(!timeEntry) {
-        let yesterdayTimeEntryRaw = lastDayElement.parentElement.parentElement.lastElementChild.firstElementChild.textContent;
-        const normalized = normalizeTimeString(yesterdayTimeEntryRaw);
-        if(!normalized || normalized === "00:00:00") return;
-        console.log("Yeesterday time entry loaded")
-        saveTimeEntry(yesterday, normalized);
-    } else {
-        clearInterval(yesterdayTimeLoadInterval);
-        yesterdayTimeLoadInterval = null;
-    }
+    let yesterdayTimeEntryRaw = lastDayElement.parentElement.parentElement.lastElementChild.firstElementChild.textContent;
+    const normalized = normalizeTimeString(yesterdayTimeEntryRaw);
+    if (!normalized || normalized === "00:00:00") return;
+    clearInterval(yesterdayTimeLoadInterval);
+    yesterdayTimeLoadInterval = null;
 }
 
 function selectProjectAndTask(project, task, modalContext) {

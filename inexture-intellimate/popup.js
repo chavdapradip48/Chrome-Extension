@@ -289,7 +289,12 @@ document.addEventListener("DOMContentLoaded", function () {
                         }
                     });
 
-                    const workDays = workedDates.size;
+                    let workDays = workedDates.size;
+                    const todayWeekday = startOfToday.getDay();
+                    if (todayWeekday !== 0 && todayWeekday !== 6 && liveSeconds > 0) {
+                        weeklySeconds += liveSeconds;
+                        workDays += 1;
+                    }
                     const targetWeekSeconds = timeToSeconds('08:20:00') * workDays;
                     console.log({ monday, startOfToday, workDays, weeklySeconds, targetWeekSeconds });
                     if (weeklySeconds > targetWeekSeconds) {
