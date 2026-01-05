@@ -93,6 +93,16 @@ document.addEventListener("DOMContentLoaded", function () {
         seconds = seconds % 60;
         return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
     }
+
+    function applyStartAtTenRule(liveSeconds, now) {
+        if (!liveSeconds || liveSeconds <= 0) return 0;
+        const current = now instanceof Date ? now : new Date();
+        const workdayStart = new Date(current.getFullYear(), current.getMonth(), current.getDate(), 10, 0, 0, 0);
+        const startMillis = current.getTime() - (liveSeconds * 1000);
+        const effectiveStart = Math.max(startMillis, workdayStart.getTime());
+        const effectiveSeconds = Math.floor((current.getTime() - effectiveStart) / 1000);
+        return Math.max(0, effectiveSeconds);
+    }
     function isLastWorkingDay(dateObj) {
         const d = (dateObj && dateObj instanceof Date) ? dateObj : new Date();
         return d.getDay() === 5; // Friday treated as last working day
@@ -112,6 +122,13 @@ document.addEventListener("DOMContentLoaded", function () {
         if (tone === 'alert') shortDayNoticeEl.classList.add('notice-alert');
         else shortDayNoticeEl.classList.remove('notice-alert');
         shortDayNoticeEl.innerText = message;
+    }
+
+    function formatIsoDateLocal(dateObj) {
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
     }
 
 
@@ -241,7 +258,7 @@ document.addEventListener("DOMContentLoaded", function () {
         const today = new Date();
         const month = today.getMonth()+1;
         const year = today.getFullYear();
-        const todayISO = today.toISOString().slice(0,10);
+        const todayISO = formatIsoDateLocal(today);
 
         // fetch live
         try {
@@ -254,6 +271,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     liveSeconds = timeToSeconds(item.total_duration);
                 }
             }
+            liveSeconds = applyStartAtTenRule(liveSeconds, today);
             console.log('computed liveSeconds:', liveSeconds);
             liveDurationEl.innerText = secondsToTime(liveSeconds);
 
@@ -275,28 +293,43 @@ document.addEventListener("DOMContentLoaded", function () {
 
                     let weeklySeconds = 0;
                     const workedDates = new Set();
+                    const shortDayDates = new Set();
+                    let todayLoggedSeconds = null;
+                    const weekEnd = new Date(monday);
+                    weekEnd.setDate(weekEnd.getDate() + 7);
+
                     list.results.forEach(r => {
                         if (!r.log_date || typeof r.total_duration !== 'string') return;
                         const entryDate = new Date(r.log_date + 'T00:00:00');
-                        if (entryDate < monday || entryDate >= startOfToday) return;
                         const weekday = entryDate.getDay();
                         if (weekday === 0 || weekday === 6) return;
                         const entrySeconds = timeToSeconds(r.total_duration);
-                        weeklySeconds += entrySeconds;
-                        if (entrySeconds > 0) {
-                            workedDates.add(r.log_date);
-                            if (entrySeconds < fullDaySeconds) shortDayCount += 1;
+
+                        if (entryDate >= monday && entryDate < weekEnd && entrySeconds > 0 && entrySeconds < fullDaySeconds) {
+                            shortDayDates.add(r.log_date);
+                        }
+
+                        if (entryDate >= monday && entryDate < startOfToday) {
+                            weeklySeconds += entrySeconds;
+                            if (entrySeconds > 0) workedDates.add(r.log_date);
+                        }
+
+                        if (r.log_date === todayISO) {
+                            todayLoggedSeconds = entrySeconds;
                         }
                     });
+                    shortDayCount = shortDayDates.size;
 
                     let workDays = workedDates.size;
                     const todayWeekday = startOfToday.getDay();
-                    if (todayWeekday !== 0 && todayWeekday !== 6 && liveSeconds > 0) {
-                        weeklySeconds += liveSeconds;
+                    if (todayLoggedSeconds !== null && todayWeekday !== 0 && todayWeekday !== 6) {
+                        weeklySeconds += todayLoggedSeconds;
                         workDays += 1;
                     }
-                    const targetWeekSeconds = timeToSeconds('08:20:00') * workDays;
-                    console.log({ monday, startOfToday, workDays, weeklySeconds, targetWeekSeconds });
+                    const baseTargetWeekSeconds = timeToSeconds('08:20:00') * workDays;
+                    const shortDayAllowanceSeconds = shortDayCount > 0 ? (fullDaySeconds - shortDaySeconds) : 0;
+                    const targetWeekSeconds = Math.max(0, baseTargetWeekSeconds - shortDayAllowanceSeconds);
+                    console.log({ monday, startOfToday, workDays, weeklySeconds, targetWeekSeconds, shortDayAllowanceSeconds });
                     if (weeklySeconds > targetWeekSeconds) {
                         weeklyExtra = secondsToTime(weeklySeconds - targetWeekSeconds);
                         lastWeeklySignedSeconds = (weeklySeconds - targetWeekSeconds); // positive

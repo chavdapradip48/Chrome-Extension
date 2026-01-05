@@ -2,6 +2,14 @@ chrome.runtime.onInstalled.addListener(() => {
     console.log("Time Entry Helper Extension Installed!");
 });
   
+function invalidateStoredToken(reason) {
+    try {
+        chrome.storage.local.remove(['lastBearerToken', 'lastBearerMeta'], function() {
+            console.log('Cleared stored token', reason ? ('(' + reason + ')') : '');
+        });
+        chrome.storage.local.set({ lastBearerTokenInvalidatedAt: new Date().toISOString() });
+    } catch (e) { /* ignore */ }
+}
 
 // Listen to outgoing requests and capture Bearer tokens from Authorization headers.
 // NOTE: This will capture tokens for requests matching the host permissions in the manifest.
@@ -41,32 +49,10 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
                                 return;
                             }
 
-                            // validate token by calling a lightweight portal API endpoint
-                            try {
-                                const validateUrl = 'https://api.portal.inexture.com/api/v1/project/my-tasks?public_access=true&page=1&page_size=1';
-                                const vresp = await fetch(validateUrl, { headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' } });
-                                const vstatus = vresp.status;
-                                let vdata = null;
-                                try { vdata = await vresp.json(); } catch (e) { vdata = null; }
-
-                                if (vstatus === 401 || (vdata && JSON.stringify(vdata).toLowerCase().includes('token_not_valid'))) {
-                                    console.warn('Captured bearer token is invalid for portal API (status=401) — ignoring.');
-                                    // remove any stale token if it was previously stored
-                                    try { chrome.storage.local.remove('lastBearerToken'); } catch (e) {}
-                                    return;
-                                }
-
-                                if (vresp.ok) {
-                                    // token appears valid — store it
-                                    chrome.storage.local.set({ lastBearerToken: token, lastBearerMeta: meta }, function() {
-                                        console.log('Validated and stored bearer token from', details.url);
-                                    });
-                                } else {
-                                    console.warn('Token validation returned non-ok status', vstatus, vdata);
-                                }
-                            } catch (err) {
-                                console.warn('Error validating captured token:', err);
-                            }
+                            // Store captured token immediately; validate through real API usage.
+                            chrome.storage.local.set({ lastBearerToken: token, lastBearerMeta: meta }, function() {
+                                console.log('Stored bearer token from', details.url);
+                            });
                         } catch (e) { console.warn('Error handling captured token', e); }
                     });
 
@@ -128,39 +114,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 let parsed = null;
                 try { parsed = await resp.json(); } catch (e) { parsed = null; }
 
-                // If unauthorized, clear stored token and notify UI
-                if (status === 401) {
-                    try {
-                        chrome.storage.local.remove('lastBearerToken', function() {
-                            console.log('Cleared stored token after 401');
-                        });
-                    } catch (e) { /* ignore */ }
+                const isAuthError = status === 401 || (parsed && JSON.stringify(parsed).toLowerCase().includes('token_not_valid'));
 
-                    // broadcast an authRequired event so popup/content can prompt user
-                    try { chrome.runtime.sendMessage({ action: 'authRequired', status: 401 }); } catch (e) { }
+                // If unauthorized, clear stored token and attempt page-based fetch (cookie/session).
+                if (isAuthError) {
+                    invalidateStoredToken('api 401');
                 }
 
-                // If fetch succeeded or returned useful HTTP status, respond immediately.
-                if (resp && (resp.ok || status !== 0)) {
-                    sendResponse({ status, ok: resp.ok, data: parsed });
-                    return;
+                const shouldPageFetch = isAuthError || !resp || status === 0;
+
+                if (!shouldPageFetch) {
+                    // If fetch succeeded or returned useful HTTP status, respond immediately.
+                    if (resp && (resp.ok || status !== 0)) {
+                        sendResponse({ status, ok: resp.ok, data: parsed });
+                        return;
+                    }
                 }
 
-                // If we reach here it means the direct background fetch failed (could be
-                // due to lack of cookies/CORS). Try to use a portal page tab to perform
-                // the request from the page (which has cookie session and same-origin privileges).
+                // Try to use a portal page tab to perform the request from the page
+                // (which has cookie session and same-origin privileges).
                 try {
                     chrome.tabs.query({ url: '*://portal.inexture.com/*' }, function(tabs) {
                         const handlePageFetch = (tabId) => {
                             chrome.tabs.sendMessage(tabId, { action: 'fetchFromPage', url }, (pageResp) => {
                                 if (!pageResp) {
-                                    sendResponse({ status, ok: resp.ok, data: parsed });
+                                    sendResponse({ status, ok: resp ? resp.ok : false, data: parsed });
                                     return;
                                 }
 
                                 // if page fetch returned 401, clear saved token and notify UI
                                 if (pageResp.status === 401) {
-                                    try { chrome.storage.local.remove('lastBearerToken'); } catch(e) {}
+                                    invalidateStoredToken('page 401');
                                     try { chrome.runtime.sendMessage({ action: 'authRequired', status: 401 }); } catch(e) {}
                                 }
 
@@ -174,7 +158,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         if (!tabs || !tabs.length) {
                             // No portal tab available — open a temporary background tab and ask it to fetch
                             chrome.tabs.create({ url: 'https://portal.inexture.com/time-entry', active: false }, function(newTab) {
-                                if (!newTab || !newTab.id) { sendResponse({ status, ok: resp.ok, data: parsed }); return; }
+                                if (!newTab || !newTab.id) { sendResponse({ status, ok: resp ? resp.ok : false, data: parsed }); return; }
 
                                 const createdTabId = newTab.id;
 
@@ -199,7 +183,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                 setTimeout(() => {
                                     chrome.tabs.onUpdated.removeListener(onUpdated);
                                     // if we didn't yet get a response, fallback to original result
-                                    sendResponse({ status, ok: resp.ok, data: parsed });
+                                    sendResponse({ status, ok: resp ? resp.ok : false, data: parsed });
                                 }, 8000);
                             });
                         } else {
@@ -210,7 +194,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     return;
                 } catch (e) {
                     // fallback: send original response
-                    sendResponse({ status, ok: resp.ok, data: parsed });
+                    sendResponse({ status, ok: resp ? resp.ok : false, data: parsed });
                     return;
                 }
             } catch (err) {
