@@ -175,11 +175,31 @@ function waitForModal(timeout = 4000, interval = 120) {
     });
 }
 
+function findWorklogAddButton() {
+    const byId = document.querySelector("button#add_worklog_btn_id");
+    if (byId) return byId;
+
+    const modalSelectors = ['[role="dialog"]', '.inexture-Modal-root', '.inexture-Modal', '.modal', '.Dialog-root', '.mantine-Modal'];
+    const modals = Array.from(document.querySelectorAll(modalSelectors.join(',')));
+    for (const modal of modals) {
+        const titleNode = modal.querySelector('h1,h2,h3,.inexture-Modal-title,.mantine-Modal-title,[data-title]');
+        const titleText = (titleNode && titleNode.innerText ? titleNode.innerText : '').toLowerCase();
+        if (!titleText.includes('worklog')) continue;
+        const buttons = Array.from(modal.querySelectorAll('button'));
+        const addBtn = buttons.find(btn => (btn.innerText || '').trim().toLowerCase() === 'add');
+        if (addBtn) return addBtn;
+    }
+    return null;
+}
+
 // Attach event listener to "Add Entry" button
 function attachButtonEventListener() {
-    const addButton = document.querySelector("button#add_worklog_btn_id");
+    const addButton = findWorklogAddButton();
 
     if (addButton && !addButton.dataset.intellimateBound) {
+        const modalSelectors = ['[role="dialog"]', '.inexture-Modal-root', '.inexture-Modal', '.modal', '.Dialog-root', '.mantine-Modal', '.inexture-Popover-root'];
+        const modalFromButton = addButton.closest(modalSelectors.join(','));
+        if (modalFromButton) lastModalContext = modalFromButton;
         addButton.addEventListener("click", async () => {
             // Wait for modal to appear so inputs exist before filling values
             const modal = await waitForModal(4500);
@@ -232,7 +252,7 @@ async function getAndSetWorklogTime(ctx) {
     const parsed = parseTotalTimeToHM(timeRaw);
     console.log("Total Time:", timeRaw, 'parsed:', parsed);
     if (parsed) {
-        setWorklogTime(parsed.hours, parsed.minutes);
+        setWorklogTime(parsed.hours, parsed.minutes, context);
     }
 }
 
@@ -302,13 +322,13 @@ function normalizeTimeString(total) {
 }
 
 // Function to select worklog time
-function setWorklogTime(hours, minutes) {
+function setWorklogTime(hours, minutes, ctx) {
     if (hours !== null && minutes !== null) {
         const formattedHours = parseInt(hours, 10).toString();
         const formattedMinutes = parseInt(minutes, 10).toString();
-        selectDropdownOption("Select Hours", formattedHours, 500);
+        selectDropdownOption("Select Hours", formattedHours, 500, ctx);
         setTimeout(() => {
-            selectDropdownOption("Select Minutes", formattedMinutes, 500);
+            selectDropdownOption("Select Minutes", formattedMinutes, 500, ctx);
         }, 1000);
     }
 }
