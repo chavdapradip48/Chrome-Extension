@@ -83,7 +83,7 @@ hr {
 .result-row { margin:6px 0; }
 .result-row strong { display:inline-block; width:170px; }
 #customTarget { width:120px; }
-#refreshBtn, #calcBtn { flex:1; }
+#refreshBtn { flex:1; }
 .notice {
     margin: 8px 0 4px;
     padding: 8px 10px;

@@ -61,7 +61,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // --- New UI handlers and calculation logic ---
     const refreshBtn = document.getElementById('refreshBtn');
-    const calcBtn = document.getElementById('calcBtn');
+
     const liveDurationEl = document.getElementById('liveDuration');
     const weeklyExtraEl = document.getElementById('weeklyExtra');
     const needToStayEl = document.getElementById('needToStay');
@@ -583,7 +583,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     refreshBtn.addEventListener('click', refreshDataAndDisplay);
-    calcBtn.addEventListener('click', () => computeLeaveTimes(new Date()));
+
 
     // auto refresh on open
     refreshDataAndDisplay();
