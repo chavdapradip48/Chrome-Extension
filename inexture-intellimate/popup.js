@@ -43,7 +43,7 @@ document.addEventListener("DOMContentLoaded", function () {
     projectDropdown.addEventListener('change', function () {
         const idx = parseInt(projectDropdown.value, 10);
         // update visible tooltip/title for the select so long names are readable on hover
-        try { projectDropdown.title = projectDropdown.options[projectDropdown.selectedIndex].text; } catch(e){}
+        try { projectDropdown.title = projectDropdown.options[projectDropdown.selectedIndex].text; } catch (e) { }
 
         // store the selected project+task names (not the index) so other parts of the extension
         // that expect names in storage continue to work.
@@ -58,7 +58,7 @@ document.addEventListener("DOMContentLoaded", function () {
     worklogButton.addEventListener("click", function () {
         chrome.tabs.create({ url: "https://portal.inexture.com/tasks" });
     });
-    
+
     // --- New UI handlers and calculation logic ---
     const refreshBtn = document.getElementById('refreshBtn');
     const calcBtn = document.getElementById('calcBtn');
@@ -83,15 +83,15 @@ document.addEventListener("DOMContentLoaded", function () {
     function timeToSeconds(time) {
         // time format HH:MM:SS
         const parts = time.split(':').map(Number);
-        return parts[0]*3600 + parts[1]*60 + (parts[2] || 0);
+        return parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
     }
 
     function secondsToTime(seconds) {
-        let hours = Math.floor(seconds/3600);
+        let hours = Math.floor(seconds / 3600);
         seconds %= 3600;
-        let minutes = Math.floor(seconds/60);
+        let minutes = Math.floor(seconds / 60);
         seconds = seconds % 60;
-        return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     }
 
     function applyStartAtTenRule(liveSeconds, now) {
@@ -109,6 +109,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     const fullDaySeconds = timeToSeconds('08:20:00');
     const shortDaySeconds = timeToSeconds('07:00:00');
+    const halfDaySeconds = timeToSeconds('04:20:00');
     let shortDayUsedBeforeToday = false;
 
     function setShortDayNotice(message, tone = 'info') {
@@ -185,7 +186,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     const found = fetchedTasks.findIndex(ft => ft.project_name === a && ft.task_name === b);
                     if (found >= 0) {
                         projectDropdown.value = found;
-                        try { projectDropdown.title = projectDropdown.options[projectDropdown.selectedIndex].text; } catch(e) {}
+                        try { projectDropdown.title = projectDropdown.options[projectDropdown.selectedIndex].text; } catch (e) { }
                     }
                 }
             });
@@ -196,10 +197,10 @@ document.addEventListener("DOMContentLoaded", function () {
             worklogButton.disabled = false;
             projectDropdown.disabled = false;
         } catch (e) {
-                const msg = (e && e.message) ? e.message : JSON.stringify(e);
-                try { console.warn('fetchAndPopulateProjects error', msg); } catch (_) { console.warn('fetchAndPopulateProjects error', e); }
+            const msg = (e && e.message) ? e.message : JSON.stringify(e);
+            try { console.warn('fetchAndPopulateProjects error', msg); } catch (_) { console.warn('fetchAndPopulateProjects error', e); }
             // If unauthorized or no token, show auth prompt
-            if (msg && (msg.includes('no_token') || msg.includes('status=401') || msg.toLowerCase().includes('token_not_valid') )) {
+            if (msg && (msg.includes('no_token') || msg.includes('status=401') || msg.toLowerCase().includes('token_not_valid'))) {
                 showAuthPrompt(true);
             } else {
                 // Keep the UI minimal: show a neutral placeholder instead of error strings
@@ -256,7 +257,7 @@ document.addEventListener("DOMContentLoaded", function () {
         leaveWithExtraEl.innerText = '...';
 
         const today = new Date();
-        const month = today.getMonth()+1;
+        const month = today.getMonth() + 1;
         const year = today.getFullYear();
         const todayISO = formatIsoDateLocal(today);
 
@@ -289,12 +290,14 @@ document.addEventListener("DOMContentLoaded", function () {
                     const diffToMonday = (day === 0) ? 6 : (day - 1);
                     const monday = new Date(now);
                     monday.setDate(now.getDate() - diffToMonday);
-                    monday.setHours(0,0,0,0);
+                    monday.setHours(0, 0, 0, 0);
 
                     let weeklySeconds = 0;
                     const workedDates = new Set();
                     const shortDayDates = new Set();
                     let todayLoggedSeconds = null;
+                    let allowanceSeconds = 0;
+
                     const weekEnd = new Date(monday);
                     weekEnd.setDate(weekEnd.getDate() + 7);
 
@@ -305,19 +308,37 @@ document.addEventListener("DOMContentLoaded", function () {
                         if (weekday === 0 || weekday === 6) return;
                         const entrySeconds = timeToSeconds(r.total_duration);
 
-                        if (entryDate >= monday && entryDate < weekEnd && entrySeconds > 0 && entrySeconds < fullDaySeconds) {
-                            shortDayDates.add(r.log_date);
-                        }
-
                         if (entryDate >= monday && entryDate < startOfToday) {
-                            weeklySeconds += entrySeconds;
-                            if (entrySeconds > 0) workedDates.add(r.log_date);
+                            if (entrySeconds > 0) {
+                                workedDates.add(r.log_date);
+                                weeklySeconds += entrySeconds;
+
+                                // Allowance Logic
+                                if (entrySeconds >= fullDaySeconds) {
+                                    // Full day: No allowance needed
+                                } else if (entrySeconds >= shortDaySeconds) {
+                                    // Short day (07:00 - 08:20)
+                                    // Only one short day allowed per week
+                                    if (shortDayDates.size === 0) {
+                                        shortDayDates.add(r.log_date);
+                                        allowanceSeconds += (fullDaySeconds - shortDaySeconds);
+                                    }
+                                } else if (entrySeconds >= halfDaySeconds) {
+                                    // Half day (04:20 - 07:00)
+                                    // Treated as 04:20 target
+                                    allowanceSeconds += (fullDaySeconds - halfDaySeconds);
+                                } else {
+                                    // Inaccurate time (< 04:20)
+                                    // No allowance given
+                                }
+                            }
                         }
 
                         if (r.log_date === todayISO) {
                             todayLoggedSeconds = entrySeconds;
                         }
                     });
+
                     shortDayCount = shortDayDates.size;
 
                     let workDays = workedDates.size;
@@ -327,9 +348,8 @@ document.addEventListener("DOMContentLoaded", function () {
                         workDays += 1;
                     }
                     const baseTargetWeekSeconds = timeToSeconds('08:20:00') * workDays;
-                    const shortDayAllowanceSeconds = shortDayCount > 0 ? (fullDaySeconds - shortDaySeconds) : 0;
-                    const targetWeekSeconds = Math.max(0, baseTargetWeekSeconds - shortDayAllowanceSeconds);
-                    console.log({ monday, startOfToday, workDays, weeklySeconds, targetWeekSeconds, shortDayAllowanceSeconds });
+                    const targetWeekSeconds = Math.max(0, baseTargetWeekSeconds - allowanceSeconds);
+                    console.log({ monday, startOfToday, workDays, weeklySeconds, targetWeekSeconds, allowanceSeconds });
                     if (weeklySeconds > targetWeekSeconds) {
                         weeklyExtra = secondsToTime(weeklySeconds - targetWeekSeconds);
                         lastWeeklySignedSeconds = (weeklySeconds - targetWeekSeconds); // positive
