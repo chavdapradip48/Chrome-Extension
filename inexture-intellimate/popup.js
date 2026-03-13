@@ -200,7 +200,7 @@ document.addEventListener("DOMContentLoaded", function () {
             const msg = (e && e.message) ? e.message : JSON.stringify(e);
             try { console.warn('fetchAndPopulateProjects error', msg); } catch (_) { console.warn('fetchAndPopulateProjects error', e); }
             // If unauthorized or no token, show auth prompt
-            if (msg && (msg.includes('no_token') || msg.includes('status=401') || msg.toLowerCase().includes('token_not_valid'))) {
+            if (msg && (msg.includes('no_token') || msg.includes('status=401') || msg.includes('status=403') || msg.toLowerCase().includes('token_not_valid') || msg.includes('permission to perform this action'))) {
                 showAuthPrompt(true);
             } else {
                 // Keep the UI minimal: show a neutral placeholder instead of error strings
@@ -384,10 +384,15 @@ document.addEventListener("DOMContentLoaded", function () {
             // success — ensure auth prompt is hidden
             showAuthPrompt(false);
         } catch (e) {
-            try { console.warn('refresh error', (e && e.message) ? e.message : JSON.stringify(e)); } catch (_) { console.warn('refresh error', e); }
+            const msg = (e && e.message) ? e.message : JSON.stringify(e);
+            try { console.warn('refresh error', msg); } catch (_) { console.warn('refresh error', e); }
             // Keep UI clean: show placeholders instead of verbose errors
             liveDurationEl.innerText = '—';
             weeklyExtraEl.innerText = '—';
+            // Show auth prompt if there's an auth error during refresh
+            if (msg && (msg.includes('no_token') || msg.includes('status=401') || msg.includes('status=403') || msg.toLowerCase().includes('token_not_valid') || msg.includes('permission to perform this action'))) {
+                showAuthPrompt(true);
+            }
         }
 
         // compute leave times automatically after refresh — pass a fixed base time so the
@@ -560,7 +565,13 @@ document.addEventListener("DOMContentLoaded", function () {
                     leaveWithExtra = (finalLeaveMillis <= baseMs) ? 'Now' : formatClock(new Date(finalLeaveMillis));
                 } else {
                     // previous-days surplus reduces the required time to reach target
-                    const usableSurplus = Math.min(capped, weeklySeconds);
+                    let usableSurplus = Math.min(capped, weeklySeconds);
+                    
+                    // If target is 7 hours or custom, do not use surplus (they must do the minimum of that time)
+                    if (targetSelect.value === '07:00:00' || targetSelect.value === 'custom') {
+                        usableSurplus = 0;
+                    }
+
                     // newRequired is how many seconds are actually needed from now
                     // after using previous-days surplus. Use base time for final calculation.
                     const baseMs = baseRefDate && baseRefDate instanceof Date ? baseRefDate.getTime() : Date.now();
