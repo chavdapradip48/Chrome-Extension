@@ -107,9 +107,9 @@ document.addEventListener("DOMContentLoaded", function () {
         const d = (dateObj && dateObj instanceof Date) ? dateObj : new Date();
         return d.getDay() === 5; // Friday treated as last working day
     }
-    const fullDaySeconds = timeToSeconds('08:20:00');
+    const fullDaySeconds = timeToSeconds('08:00:00');
     const shortDaySeconds = timeToSeconds('07:00:00');
-    const halfDaySeconds = timeToSeconds('04:20:00');
+    const halfDaySeconds = timeToSeconds('04:00:00');
     let shortDayUsedBeforeToday = false;
 
     function setShortDayNotice(message, tone = 'info') {
