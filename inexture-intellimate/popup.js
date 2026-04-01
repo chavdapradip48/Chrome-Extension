@@ -347,7 +347,7 @@ document.addEventListener("DOMContentLoaded", function () {
                         weeklySeconds += todayLoggedSeconds;
                         workDays += 1;
                     }
-                    const baseTargetWeekSeconds = timeToSeconds('08:20:00') * workDays;
+                    const baseTargetWeekSeconds = timeToSeconds('08:00:00') * workDays;
                     const targetWeekSeconds = Math.max(0, baseTargetWeekSeconds - allowanceSeconds);
                     console.log({ monday, startOfToday, workDays, weeklySeconds, targetWeekSeconds, allowanceSeconds });
                     if (weeklySeconds > targetWeekSeconds) {
@@ -361,7 +361,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     // short-day allowance: only one sub-8:20 day allowed per week
                     shortDayUsedBeforeToday = shortDayCount > 0;
                     if (shortDayOption) shortDayOption.disabled = shortDayUsedBeforeToday;
-                    if (shortDayUsedBeforeToday && targetSelect.value === '07:00:00') targetSelect.value = '08:20:00';
+                    if (shortDayUsedBeforeToday && targetSelect.value === '07:00:00') targetSelect.value = '08:00:00';
                     if (shortDayUsedBeforeToday) {
                         setShortDayNotice('7h allowance already used earlier this week.', 'alert');
                     } else {
@@ -448,15 +448,15 @@ document.addEventListener("DOMContentLoaded", function () {
         const requestedShortDay = target === '07:00:00';
         const shortDayAllowedNow = !shortDayUsedBeforeToday;
         if (requestedShortDay && !shortDayAllowedNow) {
-            target = '08:20:00';
-            if (targetSelect.value === '07:00:00') targetSelect.value = '08:20:00';
+            target = '08:00:00';
+            if (targetSelect.value === '07:00:00') targetSelect.value = '08:00:00';
             setShortDayNotice('7h allowance already used earlier this week. Minimum 08:20 applies. Weekly minimum stays 41:40.', 'alert');
         } else if (requestedShortDay && shortDayAllowedNow) {
             setShortDayNotice('Using your single 7h allowance for this week. Remaining days must meet 08:20 (weekly minimum 41:40).', 'info');
         }
         if (target === 'custom') {
             const t = customTarget.value; // format HH:MM or HH:MM:SS depending on input
-            if (!t) target = '08:20:00';
+            if (!t) target = '08:00:00';
             else {
                 const parts = t.split(':');
                 if (parts.length === 2) target = `${parts[0]}:${parts[1]}:00`;
