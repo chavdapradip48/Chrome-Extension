@@ -35,7 +35,7 @@
             <label>Target:</label>
             <select id="targetSelect">
                 <option value="08:00:00">Full day - 08:00:00</option>
-                <option value="07:00:00">Short day - 07:00:00</option>
+                <option value="04:00:00">Half day - 04:00:00</option>
                 <option value="custom">Custom</option>
             </select>
             <input id="customTarget" type="time" step="1" style="display:none;" />
@@ -44,8 +44,6 @@
         <div class="controls">
             <label><input type="checkbox" id="useWeeklyExtra" checked /> Use weekly extra if available</label>
         </div>
-
-        <div id="shortDayNotice" class="notice" style="display:none;"></div>
 
         <div class="results">
             <div id="calcAt" style="font-size:11px; color:#555; margin-bottom:8px; display:none;">Calculated at: <span

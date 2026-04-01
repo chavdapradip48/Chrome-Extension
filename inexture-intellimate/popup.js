@@ -72,9 +72,6 @@ document.addEventListener("DOMContentLoaded", function () {
     const targetSelect = document.getElementById('targetSelect');
     const customTarget = document.getElementById('customTarget');
     const useWeeklyExtra = document.getElementById('useWeeklyExtra');
-    const shortDayNoticeEl = document.getElementById('shortDayNotice');
-    const shortDayOption = targetSelect ? targetSelect.querySelector('option[value="07:00:00"]') : null;
-
     targetSelect.addEventListener('change', () => {
         if (targetSelect.value === 'custom') customTarget.style.display = 'inline-block';
         else customTarget.style.display = 'none';
@@ -108,22 +105,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return d.getDay() === 5; // Friday treated as last working day
     }
     const fullDaySeconds = timeToSeconds('08:00:00');
-    const shortDaySeconds = timeToSeconds('07:00:00');
     const halfDaySeconds = timeToSeconds('04:00:00');
-    let shortDayUsedBeforeToday = false;
-
-    function setShortDayNotice(message, tone = 'info') {
-        if (!shortDayNoticeEl) return;
-        if (!message) {
-            shortDayNoticeEl.style.display = 'none';
-            shortDayNoticeEl.classList.remove('notice-alert');
-            return;
-        }
-        shortDayNoticeEl.style.display = 'block';
-        if (tone === 'alert') shortDayNoticeEl.classList.add('notice-alert');
-        else shortDayNoticeEl.classList.remove('notice-alert');
-        shortDayNoticeEl.innerText = message;
-    }
 
     function formatIsoDateLocal(dateObj) {
         const year = dateObj.getFullYear();
@@ -278,7 +260,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
             // fetch monthly list and compute this week's extra
             let weeklyExtra = '00:00:00';
-            let shortDayCount = 0;
             try {
                 const list = await getApi(`https://api.portal.inexture.com/api/v1/time-entry/my_time_entry/?month=${month}&year=${year}&page=1&page_size=50`);
                 console.log('my_time_entry response:', list);
@@ -294,7 +275,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
                     let weeklySeconds = 0;
                     const workedDates = new Set();
-                    const shortDayDates = new Set();
                     let todayLoggedSeconds = null;
                     let allowanceSeconds = 0;
 
@@ -316,20 +296,11 @@ document.addEventListener("DOMContentLoaded", function () {
                                 // Allowance Logic
                                 if (entrySeconds >= fullDaySeconds) {
                                     // Full day: No allowance needed
-                                } else if (entrySeconds >= shortDaySeconds) {
-                                    // Short day (07:00 - 08:20)
-                                    // Only one short day allowed per week
-                                    if (shortDayDates.size === 0) {
-                                        shortDayDates.add(r.log_date);
-                                        allowanceSeconds += (fullDaySeconds - shortDaySeconds);
-                                    }
                                 } else if (entrySeconds >= halfDaySeconds) {
-                                    // Half day (04:20 - 07:00)
-                                    // Treated as 04:20 target
+                                    // Half day (04:00:00 - 08:00:00)
                                     allowanceSeconds += (fullDaySeconds - halfDaySeconds);
                                 } else {
-                                    // Inaccurate time (< 04:20)
-                                    // No allowance given
+                                    // Less than half day (< 04:00:00): No allowance given
                                 }
                             }
                         }
@@ -338,8 +309,6 @@ document.addEventListener("DOMContentLoaded", function () {
                             todayLoggedSeconds = entrySeconds;
                         }
                     });
-
-                    shortDayCount = shortDayDates.size;
 
                     let workDays = workedDates.size;
                     const todayWeekday = startOfToday.getDay();
@@ -358,15 +327,6 @@ document.addEventListener("DOMContentLoaded", function () {
                         lastWeeklySignedSeconds = (weeklySeconds - targetWeekSeconds); // negative
                     }
 
-                    // short-day allowance: only one sub-8:20 day allowed per week
-                    shortDayUsedBeforeToday = shortDayCount > 0;
-                    if (shortDayOption) shortDayOption.disabled = shortDayUsedBeforeToday;
-                    if (shortDayUsedBeforeToday && targetSelect.value === '07:00:00') targetSelect.value = '08:00:00';
-                    if (shortDayUsedBeforeToday) {
-                        setShortDayNotice('7h allowance already used earlier this week.', 'alert');
-                    } else {
-                        setShortDayNotice('One 7h allowance available this week.', 'info');
-                    }
                 }
             } catch (e) {
                 console.warn('error fetching weekly list:', (e && e.message) ? e.message : e);
@@ -374,9 +334,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 else if (e && e.status === 401) weeklyExtra = '—';
                 else weeklyExtra = '—';
                 lastWeeklySignedSeconds = null;
-                shortDayUsedBeforeToday = false;
-                if (shortDayOption) shortDayOption.disabled = false;
-                setShortDayNotice(null);
             }
 
             weeklyExtraEl.innerText = weeklyExtra;
@@ -445,15 +402,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
         // target selection
         let target = targetSelect.value;
-        const requestedShortDay = target === '07:00:00';
-        const shortDayAllowedNow = !shortDayUsedBeforeToday;
-        if (requestedShortDay && !shortDayAllowedNow) {
-            target = '08:00:00';
-            if (targetSelect.value === '07:00:00') targetSelect.value = '08:00:00';
-            setShortDayNotice('7h allowance already used earlier this week. Minimum 08:20 applies. Weekly minimum stays 41:40.', 'alert');
-        } else if (requestedShortDay && shortDayAllowedNow) {
-            setShortDayNotice('Using your single 7h allowance for this week. Remaining days must meet 08:20 (weekly minimum 41:40).', 'info');
-        }
         if (target === 'custom') {
             const t = customTarget.value; // format HH:MM or HH:MM:SS depending on input
             if (!t) target = '08:00:00';
@@ -567,8 +515,8 @@ document.addEventListener("DOMContentLoaded", function () {
                     // previous-days surplus reduces the required time to reach target
                     let usableSurplus = Math.min(capped, weeklySeconds);
                     
-                    // If target is 7 hours or custom, do not use surplus (they must do the minimum of that time)
-                    if (targetSelect.value === '07:00:00' || targetSelect.value === 'custom') {
+                    // If target is custom, do not use surplus (they must do the minimum of that time)
+                    if (targetSelect.value === 'custom') {
                         usableSurplus = 0;
                     }
 
