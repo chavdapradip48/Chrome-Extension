@@ -453,14 +453,34 @@ function selectDropdownOption(placeholder, dropValue, waitTime = 500, ctx = docu
         const dropdownNodes = document.querySelectorAll(".inexture-Popover-dropdown.inexture-Select-dropdown, .mantine-Select-dropdown, [role='listbox']");
         dropdownNodes.forEach(dropdown => {
             if (dropdown.style.display === 'none' || dropdown.offsetHeight <= 0 || dropdown.offsetWidth <= 0) return;
-            let selectedOption = null;
+            
+            let bestMatch = null;
+            let numericMatch = null;
+            let partialMatch = null;
+
+            const desiredInt = parseInt(desired, 10);
+            const isDesiredNumeric = (desired && !isNaN(desiredInt) && /^\d+$/.test(desired.toString().trim()));
+
             dropdown.querySelectorAll("div[data-combobox-option='true'], [role='option']").forEach(option => {
-                const textValue = option.innerText.trim();
-                if (textValue === desired || textValue === alt || textValue.includes(desired) || textValue.includes(alt)) {
-                    selectedOption = option;
+                const textValue = (option.innerText || '').trim();
+                const textInt = parseInt(textValue, 10);
+                const isTextNumeric = (textValue && !isNaN(textInt) && /^\d+$/.test(textValue));
+
+                // 1. Highest Priority: Exact string match (including alt-variation for leading zeros)
+                if (textValue === desired || textValue === alt) {
+                    bestMatch = option;
+                } 
+                // 2. Medium Priority: Numeric comparison (e.g. 1 == 01)
+                else if (!bestMatch && isDesiredNumeric && isTextNumeric && textInt === desiredInt) {
+                    numericMatch = option;
+                }
+                // 3. Lowest Priority: Partial string matching (useful for Project/Task selection)
+                else if (!bestMatch && !numericMatch && (textValue.includes(desired) || textValue.includes(alt))) {
+                    partialMatch = option;
                 }
             });
 
+            const selectedOption = bestMatch || numericMatch || partialMatch;
             if (selectedOption) {
                 selectedOption.click();
                 foundDropdown = true;
