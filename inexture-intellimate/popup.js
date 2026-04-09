@@ -66,12 +66,10 @@ document.addEventListener("DOMContentLoaded", function () {
     const weeklyExtraEl = document.getElementById('weeklyExtra');
     const needToStayEl = document.getElementById('needToStay');
     const leaveAtEl = document.getElementById('leaveAt');
-    const leaveWithExtraEl = document.getElementById('leaveWithExtra');
     const calcAtEl = document.getElementById('calcAt');
     const calcAtTimeEl = document.getElementById('calcAtTime');
     const targetSelect = document.getElementById('targetSelect');
     const customTarget = document.getElementById('customTarget');
-    const useWeeklyExtra = document.getElementById('useWeeklyExtra');
     targetSelect.addEventListener('change', () => {
         if (targetSelect.value === 'custom') customTarget.style.display = 'inline-block';
         else customTarget.style.display = 'none';
@@ -236,7 +234,6 @@ document.addEventListener("DOMContentLoaded", function () {
         weeklyExtraEl.innerText = '...';
         needToStayEl.innerText = '...';
         leaveAtEl.innerText = '...';
-        leaveWithExtraEl.innerText = '...';
 
         const today = new Date();
         const month = today.getMonth() + 1;
@@ -385,7 +382,6 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!liveText || liveText === '...' || liveText === 'err' || liveText === '—') {
             needToStayEl.innerText = '—';
             leaveAtEl.innerText = '—';
-            leaveWithExtraEl.innerText = '—';
             return;
         }
 
@@ -393,7 +389,6 @@ document.addEventListener("DOMContentLoaded", function () {
         if (typeof liveText !== 'string' || !/^[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?$/.test(liveText)) {
             needToStayEl.innerText = '—';
             leaveAtEl.innerText = '—';
-            leaveWithExtraEl.innerText = '—';
             return;
         }
 
@@ -438,107 +433,6 @@ document.addEventListener("DOMContentLoaded", function () {
             leaveAtEl.innerText = addSecondsToCurrentTime(staySeconds, baseRefDate);
         }
 
-        // using weekly extra
-        // prefer using cached numeric weekly signed seconds when available (avoid races)
-        const weeklyText = weeklyExtraEl.innerText;
-        const cachedSigned = (typeof lastWeeklySignedSeconds === 'number') ? lastWeeklySignedSeconds : null;
-        let leaveWithExtra = '—';
-        if (!enforcedWeeklyDeficit && useWeeklyExtra.checked && weeklyText && weeklyText !== '...' && weeklyText !== 'err' && weeklyText !== '—') {
-            // weeklyText may be '-HH:MM:SS' or 'HH:MM:SS'
-            let extraIsNegative;
-            let weeklyClean;
-            let weeklySeconds;
-
-            if (cachedSigned !== null) {
-                extraIsNegative = cachedSigned < 0;
-                weeklySeconds = Math.abs(cachedSigned);
-                weeklyClean = secondsToTime(weeklySeconds);
-            } else {
-                extraIsNegative = typeof weeklyText === 'string' && weeklyText.trim().startsWith('-');
-                weeklyClean = (typeof weeklyText === 'string') ? weeklyText.replace('-', '') : '';
-                weeklySeconds = timeToSeconds(weeklyClean);
-            }
-            if (/^[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?$/.test(weeklyClean)) {
-                // weeklySeconds is already computed/parsed above
-                let capped = weeklySeconds;
-                if (capped > timeToSeconds('01:20:00')) capped = timeToSeconds('01:20:00');
-
-                // deltaToTarget: seconds remaining until target (positive when need to reach,
-                // negative when target already reached = overtime seconds)
-                const deltaToTarget = targetSeconds - liveSeconds;
-                const required = Math.max(0, deltaToTarget);
-
-                // today's overtime (seconds) — positive if we are past target
-                const todayOvertime = Math.max(0, -deltaToTarget);
-
-                // Determine anchorTime: the moment when today's target is (or will be) reached.
-                // - if target is already reached, anchor = baseDate - overtime (when target completed)
-                // - if not, anchor = baseDate + required (when target will be reached)
-                let anchorMillis;
-                try {
-                    const baseMs = baseRefDate && baseRefDate instanceof Date ? baseRefDate.getTime() : Date.now();
-                    if (liveSeconds >= targetSeconds) {
-                        // completed earlier — anchor at the time target was reached
-                        const overtimeSeconds = liveSeconds - targetSeconds;
-                        anchorMillis = baseMs - (overtimeSeconds * 1000);
-                    } else {
-                        // target is in the future — anchor when it will be reached
-                        anchorMillis = baseMs + (required * 1000);
-                    }
-                } catch (e) {
-                    anchorMillis = Date.now();
-                }
-
-                if (extraIsNegative) {
-                    // previous-days deficit
-                    const prevDeficit = weeklySeconds;
-                    // today's overtime reduces the previous deficit
-                    const remainingDeficitAfterToday = Math.max(0, prevDeficit - todayOvertime);
-
-                    const baseMs = baseRefDate && baseRefDate instanceof Date ? baseRefDate.getTime() : Date.now();
-
-                    // If target already reached, remaining deficit must be earned from now onward
-                    // (user already has todayOvertime; they need additional remainingDeficitAfterToday seconds)
-                    let finalLeaveMillis;
-                    if (liveSeconds >= targetSeconds) {
-                        finalLeaveMillis = baseMs + (remainingDeficitAfterToday * 1000);
-                    } else {
-                        // target not yet reached: they must first reach target (required seconds),
-                        // then cover the whole prevDeficit (todayOvertime is zero in this branch)
-                        finalLeaveMillis = anchorMillis + (prevDeficit * 1000);
-                    }
-
-                    console.debug('leaveWithExtra (neg):', { anchor: new Date(anchorMillis).toLocaleTimeString(), prevDeficit, todayOvertime, remainingDeficitAfterToday, finalLeave: new Date(finalLeaveMillis).toLocaleTimeString() });
-                    // If the computed final time is in the past compared to base, show 'Now'
-                    leaveWithExtra = (finalLeaveMillis <= baseMs) ? 'Now' : formatClock(new Date(finalLeaveMillis));
-                } else {
-                    // previous-days surplus reduces the required time to reach target
-                    let usableSurplus = Math.min(capped, weeklySeconds);
-                    
-                    // If target is custom, do not use surplus (they must do the minimum of that time)
-                    if (targetSelect.value === 'custom') {
-                        usableSurplus = 0;
-                    }
-
-                    // newRequired is how many seconds are actually needed from now
-                    // after using previous-days surplus. Use base time for final calculation.
-                    const baseMs = baseRefDate && baseRefDate instanceof Date ? baseRefDate.getTime() : Date.now();
-                    const newRequired = Math.max(0, required - usableSurplus);
-
-                    // final leave is base + newRequired (shorter than anchor if surplus applies)
-                    const finalLeaveMillis = baseMs + (newRequired * 1000);
-                    // `newRequired` is the adjusted required seconds after taking usableSurplus into account.
-                    console.debug('leaveWithExtra (pos):', { anchor: formatClock(new Date(anchorMillis)), usableSurplus, required, newRequired, finalLeave: formatClock(new Date(finalLeaveMillis)) });
-
-                    // if final leave is in the past or now, show Now
-                    leaveWithExtra = (finalLeaveMillis <= baseMs) ? 'Now' : formatClock(new Date(finalLeaveMillis));
-                }
-            } else {
-                leaveWithExtra = '—';
-            }
-        }
-
-        leaveWithExtraEl.innerText = enforcedWeeklyDeficit ? leaveAtEl.innerText : leaveWithExtra;
     }
 
     refreshBtn.addEventListener('click', refreshDataAndDisplay);
