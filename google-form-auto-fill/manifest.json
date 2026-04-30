@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Google Form Auto Bot",
+  "version": "1.0",
+  "description": "Auto fill and submit forms",
+  "permissions": ["storage"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://docs.google.com/forms/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
