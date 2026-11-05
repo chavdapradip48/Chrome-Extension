@@ -45,7 +45,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
                     chrome.storage.local.get(['lastBearerToken'], async function(data) {
                         try {
                             if (data && data.lastBearerToken === token) {
-                                console.log('Captured token is same as stored token — skipping validation.');
+                                console.log('Captured token is same as stored token - skipping validation.');
                                 return;
                             }
 
@@ -93,20 +93,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             try {
                 // If we have a token, use it via Authorization header.
                 // If we don't have a token, try a cookie-based request (credentials: 'include')
-                // — this helps when the portal uses cookie/session auth instead of Bearer tokens.
+                // - this helps when the portal uses cookie/session auth instead of Bearer tokens.
                 const fetchOpts = token ? {
                     headers: {
                         'Authorization': 'Bearer ' + token,
                         'Accept': 'application/json'
                     }
                 } : {
-                    // No token saved — try cookie based request so logged-in sessions still work
+                    // No token saved - try cookie based request so logged-in sessions still work
                     credentials: 'include',
                     headers: { 'Accept': 'application/json' }
                 };
 
-                if (token) console.log('background.fetchWithToken — using bearer token');
-                else console.log('background.fetchWithToken — no token found; attempting cookie-based request');
+                if (token) console.log('background.fetchWithToken - using bearer token');
+                else console.log('background.fetchWithToken - no token found; attempting cookie-based request');
 
                 const resp = await fetch(url, fetchOpts);
 
@@ -156,7 +156,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                         };
 
                         if (!tabs || !tabs.length) {
-                            // No portal tab available — open a temporary background tab and ask it to fetch
+                            // No portal tab available - open a temporary background tab and ask it to fetch
                             chrome.tabs.create({ url: 'https://portal.inexture.com/time-entry', active: false }, function(newTab) {
                                 if (!newTab || !newTab.id) { sendResponse({ status, ok: resp ? resp.ok : false, data: parsed }); return; }
 

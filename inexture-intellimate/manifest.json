@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Inexture IntelliMate",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Your intelligent workmate for automating time entries in the Inexture portal.",
   "permissions": ["scripting", "activeTab", "storage", "webRequest"],
   "host_permissions": ["<all_urls>"],
@@ -12,6 +12,11 @@
     {
       "matches": ["https://portal.inexture.com/*"],
       "js": ["content.js"]
+    },
+    {
+      "matches": ["https://auth.inexture.com/*", "https://login.microsoftonline.com/*"],
+      "js": ["auto-login.js"],
+      "run_at": "document_idle"
     }
   ],
   "action": {

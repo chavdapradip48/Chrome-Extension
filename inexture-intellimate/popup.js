@@ -11,6 +11,16 @@ document.addEventListener("DOMContentLoaded", function () {
         return;
     }
 
+    const autoLoginToggle = document.getElementById('autoLoginToggle');
+    if (autoLoginToggle) {
+        chrome.storage.local.get(['autoLoginEnabled'], (data) => {
+            autoLoginToggle.checked = !!data.autoLoginEnabled;
+        });
+        autoLoginToggle.addEventListener('change', () => {
+            chrome.storage.local.set({ autoLoginEnabled: autoLoginToggle.checked });
+        });
+    }
+
     console.log("Popup loaded");
     // Populate dropdown while loading
     projectDropdown.innerHTML = "<option>Loading projects...</option>";
@@ -148,8 +158,10 @@ document.addEventListener("DOMContentLoaded", function () {
             fetchedTasks.forEach((t, idx) => {
                 const opt = document.createElement('option');
                 opt.value = idx;
-                const longText = `${t.project_name} — ${t.task_name}`;
+                const longText = `${t.project_name} - ${t.task_name}`;
                 opt.textContent = longText;
+                opt.dataset.project = t.project_name;
+                opt.dataset.task = t.task_name;
                 // set a tooltip/title so the full value is visible on hover
                 opt.title = longText;
                 projectDropdown.appendChild(opt);
@@ -166,6 +178,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     const found = fetchedTasks.findIndex(ft => ft.project_name === a && ft.task_name === b);
                     if (found >= 0) {
                         projectDropdown.value = found;
+                        projectDropdown.dispatchEvent(new Event('change'));
                         try { projectDropdown.title = projectDropdown.options[projectDropdown.selectedIndex].text; } catch (e) { }
                     }
                 }
@@ -212,7 +225,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // expose login button to open in new tab if needed (default anchor handles it)
     if (goToLoginBtn) goToLoginBtn.addEventListener('click', () => {
-        // UI action only — anchor will open link
+        // UI action only - anchor will open link
     });
 
     // Listen for authRequired broadcast from background
@@ -220,8 +233,8 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!msg || !msg.action) return;
         if (msg.action === 'authRequired') {
             showAuthPrompt(true);
-            liveDurationEl.innerText = '—';
-            weeklyExtraEl.innerText = '—';
+            liveDurationEl.innerText = '-';
+            weeklyExtraEl.innerText = '-';
         }
     });
 
@@ -327,29 +340,31 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             } catch (e) {
                 console.warn('error fetching weekly list:', (e && e.message) ? e.message : e);
-                if (e && e.error === 'no_token') weeklyExtra = '—';
-                else if (e && e.status === 401) weeklyExtra = '—';
-                else weeklyExtra = '—';
+                if (e && e.error === 'no_token') weeklyExtra = '-';
+                else if (e && e.status === 401) weeklyExtra = '-';
+                else weeklyExtra = '-';
                 lastWeeklySignedSeconds = null;
             }
 
             weeklyExtraEl.innerText = weeklyExtra;
+            weeklyExtraEl.classList.toggle('neg', weeklyExtra.startsWith('-') && weeklyExtra.length > 1);
+            weeklyExtraEl.classList.toggle('pos', /^\d/.test(weeklyExtra) && weeklyExtra !== '00:00:00');
             // keep the element text but remember we cached numeric signed value
-            // success — ensure auth prompt is hidden
+            // success - ensure auth prompt is hidden
             showAuthPrompt(false);
         } catch (e) {
             const msg = (e && e.message) ? e.message : JSON.stringify(e);
             try { console.warn('refresh error', msg); } catch (_) { console.warn('refresh error', e); }
             // Keep UI clean: show placeholders instead of verbose errors
-            liveDurationEl.innerText = '—';
-            weeklyExtraEl.innerText = '—';
+            liveDurationEl.innerText = '-';
+            weeklyExtraEl.innerText = '-';
             // Show auth prompt if there's an auth error during refresh
             if (msg && (msg.includes('no_token') || msg.includes('status=401') || msg.includes('status=403') || msg.toLowerCase().includes('token_not_valid') || msg.includes('permission to perform this action'))) {
                 showAuthPrompt(true);
             }
         }
 
-        // compute leave times automatically after refresh — pass a fixed base time so the
+        // compute leave times automatically after refresh - pass a fixed base time so the
         // calculated 'leave' timestamps remain stable until the next refresh (they won't
         // continuously slide forward as `Now` moves).
         try {
@@ -379,16 +394,16 @@ document.addEventListener("DOMContentLoaded", function () {
         } catch (e) { /* ignore formatting errors */ }
         const liveText = liveDurationEl.innerText;
         // If liveText is not a valid HH:MM:SS string, clear outputs and return
-        if (!liveText || liveText === '...' || liveText === 'err' || liveText === '—') {
-            needToStayEl.innerText = '—';
-            leaveAtEl.innerText = '—';
+        if (!liveText || liveText === '...' || liveText === 'err' || liveText === '-') {
+            needToStayEl.innerText = '-';
+            leaveAtEl.innerText = '-';
             return;
         }
 
         // basic validation: must contain colons and digits
         if (typeof liveText !== 'string' || !/^[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?$/.test(liveText)) {
-            needToStayEl.innerText = '—';
-            leaveAtEl.innerText = '—';
+            needToStayEl.innerText = '-';
+            leaveAtEl.innerText = '-';
             return;
         }
 
@@ -422,7 +437,7 @@ document.addEventListener("DOMContentLoaded", function () {
             // Target reached: show target and overtime info
             const overtime = liveSeconds - targetSeconds;
             const overtimeText = secondsToTime(overtime);
-            needToStayEl.innerText = `00:00:00 (Target ${secondsToTime(targetSeconds)} reached — +${overtimeText})`;
+            needToStayEl.innerText = `00:00:00 (Target ${secondsToTime(targetSeconds)} reached - +${overtimeText})`;
             leaveAtEl.innerText = 'Now';
         } else {
             if (enforcedWeeklyDeficit) {

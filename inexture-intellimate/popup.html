@@ -3,37 +3,55 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="VIEW_DATAport" content="width=device-width, initial-scale=1.0">
-    <title>Portal Helper</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inexture IntelliMate</title>
     <script src="popup.js" defer></script>
+    <script src="dropdown.js" defer></script>
     <link rel="stylesheet" href="popup.css">
 </head>
 
 <body>
-    <div class="container">
-        <h4>Project Selection</h4>
-        <label for="projectDropdown">Choose a project:</label>
+    <header class="app-header">
+        <img src="icons/icon-32.png" alt="" class="app-logo">
+        <div>
+            <div class="app-name">IntelliMate</div>
+            <div class="app-tagline">Your Inexture workmate</div>
+        </div>
+    </header>
+
+    <section class="card toggle-row">
+        <div>
+            <div class="toggle-title">Auto login with Microsoft</div>
+            <div class="toggle-hint">Signs in as pradip@inexture.com</div>
+        </div>
+        <label class="switch">
+            <input type="checkbox" id="autoLoginToggle">
+            <span class="slider"></span>
+        </label>
+    </section>
+
+    <section class="card">
+        <h4 class="card-title">Project</h4>
+        <label for="projectDropdown" class="field-label">Choose a project</label>
         <select id="projectDropdown"></select>
-        <div id="authPrompt"
-            style="display:none; margin-top:8px; padding:8px; border:1px dashed #ddd; background:#fafafa;">
-            <div style="margin-bottom:6px;">You are not signed in - please login to the portal to load projects.</div>
-            <div>
-                <a id="loginLink" href="https://portal.inexture.com" target="_blank"><button id="goToLogin">Go to
-                        Login</button></a>
-            </div>
+        <div id="authPrompt" class="auth-prompt" style="display:none;">
+            <div>You are not signed in. Log in to the portal to load your projects.</div>
+            <a id="loginLink" href="https://portal.inexture.com" target="_blank"><button id="goToLogin" class="btn btn-primary">Go to Login</button></a>
         </div>
-
         <div class="row">
-            <button id="saveProject">Save Selection</button>
-            <button id="goToWorklog">Go to Worklog</button>
+            <button id="saveProject" class="btn btn-primary">Save Selection</button>
+            <button id="goToWorklog" class="btn btn-outline">Go to Worklog</button>
         </div>
+    </section>
 
-        <hr>
-
-        <h4>Live Time Calculation</h4>
+    <section class="card">
+        <div class="card-head">
+            <h4 class="card-title">Live Time</h4>
+            <button id="refreshBtn" class="btn-icon" title="Refresh">&#x21bb; Refresh</button>
+        </div>
         <div class="controls">
-            <label>Target:</label>
-            <select id="targetSelect">
+            <label for="targetSelect" class="field-label">Target</label>
+            <select id="targetSelect" class="select">
                 <option value="08:00:00">Full day - 08:00:00</option>
                 <option value="04:00:00">Half day - 04:00:00</option>
                 <option value="custom">Custom</option>
@@ -41,29 +59,29 @@
             <input id="customTarget" type="time" step="1" style="display:none;" />
         </div>
 
-
-
-        <div class="results">
-            <div id="calcAt" style="font-size:11px; color:#555; margin-bottom:8px; display:none;">Calculated at: <span
-                    id="calcAtTime"></span></div>
-            <div id="resultsLoader" style="display:none;" class="loader"><span class="spinner"></span>Calculating...
+        <div id="resultsLoader" style="display:none;" class="loader"><span class="spinner"></span>Calculating...</div>
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-label">Live duration</div>
+                <div class="stat-value" id="liveDuration">-</div>
             </div>
-            <div class="result-row"><strong>Live duration:</strong> <span id="liveDuration">—</span></div>
-            <div class="result-row"><strong>Weekly extra/deficit:</strong> <span id="weeklyExtra">—</span></div>
-            <div class="result-row"><strong>Need to stay:</strong> <span id="needToStay">—</span></div>
-            <div class="result-row"><strong>Leave at:</strong> <span id="leaveAt">—</span></div>
+            <div class="stat">
+                <div class="stat-label">Weekly extra / deficit</div>
+                <div class="stat-value" id="weeklyExtra">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Need to stay</div>
+                <div class="stat-value" id="needToStay">-</div>
+            </div>
+            <div class="stat stat-accent">
+                <div class="stat-label">Leave at</div>
+                <div class="stat-value" id="leaveAt">-</div>
+            </div>
         </div>
+        <div id="calcAt" class="calc-at" style="display:none;">Calculated at <span id="calcAtTime"></span></div>
+    </section>
 
-        <div class="row">
-            <button id="refreshBtn">Refresh</button>
-
-        </div>
-
-        <div class="footer-note">
-            <span class="footer-accent"></span>
-            <span class="footer-text">Developed by <strong>Pradip Chavda</strong></span>
-        </div>
-    </div>
+    <footer class="footer-note">Developed by <strong>Pradip Chavda</strong></footer>
 </body>
 
 </html>
