@@ -19,6 +19,43 @@
         </div>
     </header>
 
+    <section class="card">
+        <div class="card-head">
+            <h4 class="card-title">Live Time</h4>
+            <button id="refreshBtn" class="btn-icon" title="Refresh">&#x21bb; Refresh</button>
+        </div>
+        <div class="controls">
+            <label for="targetSelect" class="field-label">Target</label>
+            <select id="targetSelect" class="select">
+                <option value="08:00:00">Full day - 08:00:00</option>
+                <option value="04:00:00">Half day - 04:00:00</option>
+                <option value="custom">Custom</option>
+            </select>
+            <input id="customTarget" type="time" step="1" style="display:none;" />
+        </div>
+
+        <div id="resultsLoader" style="display:none;" class="loader"><span class="spinner"></span>Calculating...</div>
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-label">Live duration</div>
+                <div class="stat-value" id="liveDuration">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Weekly extra / deficit</div>
+                <div class="stat-value" id="weeklyExtra">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Need to stay</div>
+                <div class="stat-value" id="needToStay">-</div>
+            </div>
+            <div class="stat stat-accent">
+                <div class="stat-label">Leave at</div>
+                <div class="stat-value" id="leaveAt">-</div>
+            </div>
+        </div>
+        <div id="calcAt" class="calc-at" style="display:none;">Calculated at <span id="calcAtTime"></span></div>
+    </section>
+
     <section class="card toggle-row">
         <div>
             <div class="toggle-title">Auto login with Microsoft</div>
@@ -56,43 +93,6 @@
             <button id="saveProject" class="btn btn-primary">Save Selection</button>
             <button id="goToWorklog" class="btn btn-outline">Go to Worklog</button>
         </div>
-    </section>
-
-    <section class="card">
-        <div class="card-head">
-            <h4 class="card-title">Live Time</h4>
-            <button id="refreshBtn" class="btn-icon" title="Refresh">&#x21bb; Refresh</button>
-        </div>
-        <div class="controls">
-            <label for="targetSelect" class="field-label">Target</label>
-            <select id="targetSelect" class="select">
-                <option value="08:00:00">Full day - 08:00:00</option>
-                <option value="04:00:00">Half day - 04:00:00</option>
-                <option value="custom">Custom</option>
-            </select>
-            <input id="customTarget" type="time" step="1" style="display:none;" />
-        </div>
-
-        <div id="resultsLoader" style="display:none;" class="loader"><span class="spinner"></span>Calculating...</div>
-        <div class="stats">
-            <div class="stat">
-                <div class="stat-label">Live duration</div>
-                <div class="stat-value" id="liveDuration">-</div>
-            </div>
-            <div class="stat">
-                <div class="stat-label">Weekly extra / deficit</div>
-                <div class="stat-value" id="weeklyExtra">-</div>
-            </div>
-            <div class="stat">
-                <div class="stat-label">Need to stay</div>
-                <div class="stat-value" id="needToStay">-</div>
-            </div>
-            <div class="stat stat-accent">
-                <div class="stat-label">Leave at</div>
-                <div class="stat-value" id="leaveAt">-</div>
-            </div>
-        </div>
-        <div id="calcAt" class="calc-at" style="display:none;">Calculated at <span id="calcAtTime"></span></div>
     </section>
 
     <footer class="footer-note">Developed by <strong>Pradip Chavda</strong></footer>
