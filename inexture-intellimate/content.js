@@ -222,6 +222,9 @@ function attachButtonEventListener() {
                 if (activeModal) lastModalContext = activeModal;
                 await getAndSetWorklogTime(lastModalContext || document);
             }, 1000);
+
+            // After project/task/hours dropdowns finish, so their clicks don't steal editor focus.
+            setTimeout(() => watchEodFill(lastModalContext || document), 3200);
         });
         addButton.dataset.intellimateBound = "1";
     }
@@ -510,6 +513,142 @@ function timeEntryPageCheck() {
         clearInterval(yesterdayTimeLoadInterval);
         yesterdayTimeLoadInterval = null;
     }
+}
+
+// ---- EOD auto-fill for Work Description ----
+
+function gbToIsoDate(gb) {
+    const dt = parseGBDateString(gb);
+    if (!dt) return null;
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+}
+
+function getEodText(isoDate) {
+    return new Promise((resolve) => {
+        try {
+            chrome.runtime.sendMessage({ action: 'getEod', date: isoDate }, (resp) => {
+                void chrome.runtime.lastError;
+                resolve((resp && resp.text) || null);
+            });
+        } catch (e) { resolve(null); }
+    });
+}
+
+function escapeHtml(t) {
+    return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function inlineMd(t) {
+    return escapeHtml(t)
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, '$1<em>$2</em>')
+        .replace(/`([^`]+)`/g, '$1');
+}
+
+// Headings -> bold paragraphs, "- " / "1. " -> lists; drops the "# EOD - date" title.
+function eodMarkdownToHtml(md) {
+    const out = [];
+    let list = null;
+    const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+    md.split(/\r?\n/).forEach((raw) => {
+        const line = raw.trim();
+        if (!line || /^#\s+EOD\b/i.test(line) || /^-{3,}$/.test(line)) return closeList();
+        let m;
+        if ((m = line.match(/^[-*]\s+(.*)$/)) || (m = line.match(/^\d+[.)]\s+(.*)$/))) {
+            const type = /^\d/.test(line) ? 'ol' : 'ul';
+            if (list !== type) { closeList(); out.push(`<${type}>`); list = type; }
+            out.push(`<li>${inlineMd(m[1])}</li>`);
+            return;
+        }
+        closeList();
+        if ((m = line.match(/^#{1,6}\s+(.*)$/))) out.push(`<p><strong>${inlineMd(m[1])}</strong></p>`);
+        else out.push(`<p>${inlineMd(line)}</p>`);
+    });
+    closeList();
+    return out.join('');
+}
+
+function findDescriptionEditor(ctx) {
+    return ctx.querySelector('.ProseMirror[contenteditable="true"]') || ctx.querySelector('[contenteditable="true"]');
+}
+
+function editorPlainText(editor) {
+    return (editor.innerText || '').replace(/\s+/g, ' ').trim();
+}
+
+// Simulated paste so the rich-text editor updates its own state (and enables Submit).
+function insertHtmlIntoEditor(editor, html, plain) {
+    editor.focus();
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const dt = new DataTransfer();
+    dt.setData('text/html', html);
+    dt.setData('text/plain', plain);
+    editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+
+    const probe = plain.replace(/\s+/g, ' ').trim().slice(0, 30);
+    if (!editorPlainText(editor).includes(probe)) {
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertHTML', false, html);
+    }
+}
+
+let eodWatchTimer = null;
+
+// Fills once, then re-fills on date change while the field still holds our text (or is empty).
+function watchEodFill(ctx) {
+    if (eodWatchTimer) clearInterval(eodWatchTimer);
+    let lastDate = null;
+    let lastFilledText = '';
+    let busy = false;
+
+    const tick = async () => {
+        if (busy) return;
+        const editor = findDescriptionEditor(ctx);
+        if (!editor || !document.contains(editor)) {
+            clearInterval(eodWatchTimer);
+            eodWatchTimer = null;
+            return;
+        }
+        const date = extractDateValue(findCurrentWorklogDateElement(ctx));
+        if (!date || date === lastDate) return;
+        lastDate = date;
+
+        const current = editorPlainText(editor);
+        if (current && current !== lastFilledText) return; // user typed their own text
+
+        busy = true;
+        try {
+            const { eodAutoFill } = await chrome.storage.local.get('eodAutoFill');
+            if (eodAutoFill === false) return;
+            const iso = gbToIsoDate(date);
+            const md = iso && await getEodText(iso);
+            if (!md) {
+                if (current && current === lastFilledText) {
+                    editor.focus();
+                    document.execCommand('selectAll', false, null);
+                    document.execCommand('delete', false, null);
+                    lastFilledText = '';
+                }
+                return;
+            }
+            const html = eodMarkdownToHtml(md);
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            insertHtmlIntoEditor(editor, html, tmp.innerText);
+            lastFilledText = editorPlainText(editor);
+        } finally {
+            busy = false;
+        }
+    };
+
+    tick();
+    eodWatchTimer = setInterval(tick, 800);
 }
 
 // Observe DOM changes and attach event listener

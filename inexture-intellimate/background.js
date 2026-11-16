@@ -1,3 +1,5 @@
+importScripts('eod-store.js');
+
 chrome.runtime.onInstalled.addListener(() => {
     console.log("Time Entry Helper Extension Installed!");
 });
@@ -84,6 +86,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (!message || !message.action) return;
+
+    if (message.action === 'getEod') {
+        eodGetForDate(message.date)
+            .then((text) => sendResponse({ text }))
+            .catch((e) => sendResponse({ error: String(e) }));
+        return true;
+    }
 
     if (message.action === 'fetchWithToken') {
         const url = message.url;

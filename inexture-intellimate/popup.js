@@ -21,6 +21,21 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    const eodToggle = document.getElementById('eodToggle');
+    const eodStatus = document.getElementById('eodStatus');
+    const eodFolderBtn = document.getElementById('eodFolderBtn');
+    chrome.storage.local.get(['eodAutoFill', 'eodMeta'], (data) => {
+        eodToggle.checked = data.eodAutoFill !== false;
+        if (data.eodMeta) {
+            const synced = new Date(data.eodMeta.syncedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+            eodStatus.textContent = `${data.eodMeta.count} EODs from "${data.eodMeta.folder}", synced ${synced}`;
+            eodFolderBtn.textContent = 'Sync / Change EOD Folder';
+        }
+    });
+    eodToggle.addEventListener('change', () => chrome.storage.local.set({ eodAutoFill: eodToggle.checked }));
+    // File picker closes the popup, so it runs in its own tab.
+    eodFolderBtn.addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('eod-setup.html') }));
+
     console.log("Popup loaded");
     // Populate dropdown while loading
     projectDropdown.innerHTML = "<option>Loading projects...</option>";

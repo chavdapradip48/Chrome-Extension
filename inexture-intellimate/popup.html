@@ -31,6 +31,20 @@
     </section>
 
     <section class="card">
+        <div class="toggle-row">
+            <div>
+                <div class="toggle-title">Fill Work Description from EOD</div>
+                <div class="toggle-hint" id="eodStatus">No EOD folder chosen</div>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="eodToggle">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <button id="eodFolderBtn" class="btn btn-outline" style="width:100%;margin-top:10px;">Choose EOD Folder</button>
+    </section>
+
+    <section class="card">
         <h4 class="card-title">Project</h4>
         <label for="projectDropdown" class="field-label">Choose a project</label>
         <select id="projectDropdown"></select>

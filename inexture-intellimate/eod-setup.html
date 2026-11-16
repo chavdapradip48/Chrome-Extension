@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IntelliMate - EOD Folder</title>
+    <link rel="stylesheet" href="popup.css">
+    <style>
+        body { width: auto; max-width: 460px; margin: 40px auto; }
+        .status { font-size: 13px; line-height: 1.6; margin-bottom: 12px; }
+        .status .err { color: var(--neg); }
+        .status .ok { color: var(--pos); }
+    </style>
+    <script src="eod-store.js" defer></script>
+    <script src="eod-setup.js" defer></script>
+</head>
+
+<body>
+    <header class="app-header">
+        <img src="icons/icon-32.png" alt="" class="app-logo">
+        <div>
+            <div class="app-name">IntelliMate</div>
+            <div class="app-tagline">EOD folder for Work Description auto-fill</div>
+        </div>
+    </header>
+
+    <section class="card">
+        <h4 class="card-title">EOD Folder</h4>
+        <div class="status" id="status">Loading...</div>
+        <div class="field-label">Files named <strong>EOD_YYYY-MM-DD.md</strong> are read. Their text is copied into the extension so the WorkLog form can use it.</div>
+        <div class="row" style="margin-top:10px;">
+            <button id="chooseBtn" class="btn btn-outline">Choose Folder</button>
+            <button id="syncBtn" class="btn btn-primary">Sync Now</button>
+        </div>
+    </section>
+</body>
+
+</html>
